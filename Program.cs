@@ -9,9 +9,11 @@ var slnFile = Directory.GetFiles(path, "*.sln").FirstOrDefault();
 if (slnFile != null)
 {
     Console.WriteLine($"Opening {slnFile} in Visual Studio...");
-    Process.Start("devenv.exe", slnFile);
+    Process.Start(new ProcessStartInfo(slnFile) { UseShellExecute = true });
     return;
 }
+
+// TODO: Check if we have a .devcontainer folder in the current directory. And if so, open it in Visual Studio Code as a dev container.
 
 // Check if we have a .csproj file in the current directory. And if so, open it in Visual Studio Code.
 var csprojFile = Directory.GetFiles(path, "*.csproj").FirstOrDefault();
