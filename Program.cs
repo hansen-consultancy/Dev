@@ -17,6 +17,7 @@ if (args.Length > 0)
         Console.WriteLine("Commands:");
         Console.WriteLine("  launch (default) - Launches the current project in Visual Studio or Visual Studio Code.");
         Console.WriteLine("  bump [major|minor|patch|revision] - Bumps the version of all projects in the current solution.");
+        Console.WriteLine("  build - Builds the current solution in Release mode.");
         Console.WriteLine("  help - Displays this help message.");
         return;
     }
@@ -59,6 +60,14 @@ if (slnFile != null)
             }
         }
 
+        return;
+    }
+
+    if (command is "build")
+    {
+        // Use dotnet build to build the solution in Release mode
+        Console.WriteLine($"Building {slnFile} in Release mode...");
+        Process.Start("dotnet", $"build \"{slnFile}\" -c Release");
         return;
     }
 
