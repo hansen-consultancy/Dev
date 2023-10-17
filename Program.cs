@@ -48,9 +48,9 @@ if (slnFile != null)
                 // Bump based on subCommand (major, minor, patch or revision)
                 var newVersion = subCommand switch
                 {
-                    "major" => new(semver.Major + 1, 0, 0, 0, semver.Suffix, semver.BuildVariables),
-                    "minor" => new(semver.Major, semver.Minor + 1, 0, 0, semver.Suffix, semver.BuildVariables),
-                    "patch" => new(semver.Major, semver.Minor, semver.Build + 1, 0, semver.Suffix, semver.BuildVariables),
+                    "major" => new(semver.Major + 1, 0, 0, semver.Fix is null ? semver.Fix : 0, semver.Suffix, semver.BuildVariables),
+                    "minor" => new(semver.Major, semver.Minor + 1, 0, semver.Fix is null ? semver.Fix : 0, semver.Suffix, semver.BuildVariables),
+                    "patch" => new(semver.Major, semver.Minor, semver.Build + 1, semver.Fix is null ? semver.Fix : 0, semver.Suffix, semver.BuildVariables),
                     _ => new SemVer(semver.Major, semver.Minor, semver.Build, semver.Fix + 1, semver.Suffix, semver.BuildVariables),
                 };
                 Console.WriteLine($"Bumping {name} from {version} to {newVersion}...");
