@@ -15,7 +15,7 @@ if (args.Length > 0)
     {
         Console.WriteLine("Usage: dev [command]");
         Console.WriteLine("Commands:");
-        Console.WriteLine("  launch (default) - Launches the current project in Visual Studio or Visual Studio Code.");
+        Console.WriteLine("  launch (default) - Launches the current solution in Visual Studio or project in Visual Studio Code.");
         Console.WriteLine("  bump [major|minor|patch|revision] - Bumps the version of all projects in the current solution.");
         Console.WriteLine("  build - Builds the current solution in Release mode.");
         Console.WriteLine("  help - Displays this help message.");
@@ -39,7 +39,7 @@ if (slnFile != null)
         foreach (Match match in matches)
         {
             var name = match.Groups["name"].Value;
-            var projectPath = match.Groups["path"].Value;
+            var projectPath = match.Groups["path"].Value.Replace('\\', Path.DirectorySeparatorChar);
             var csproj = File.ReadAllText(projectPath);
             var versionMatch = VersionRegex().Match(csproj);
             if (versionMatch.Success)
