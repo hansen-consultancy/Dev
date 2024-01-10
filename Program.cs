@@ -16,7 +16,7 @@ if (args.Length > 0)
         Console.WriteLine("Usage: dev [command]");
         Console.WriteLine("Commands:");
         Console.WriteLine("  launch (default) - Launches the current solution in Visual Studio or project in Visual Studio Code.");
-        Console.WriteLine("  bump [major|minor|patch|revision] - Bumps the version of all projects in the current solution or the current project.");
+        Console.WriteLine("  bump [major|minor|patch|revision] - Bumps the version of all projects in the current solution or the current project. Defaults to patch.");
         Console.WriteLine("  build - Builds the current solution or project in Release mode.");
         Console.WriteLine("  help - Displays this help message.");
         return;
@@ -80,6 +80,12 @@ Console.WriteLine("No .sln or .csproj file found in the current directory.");
 
 static void BumpProjectVersion(string projectPath, string subCommand)
 {
+    if (!File.Exists(projectPath))
+    {
+        Console.WriteLine($"Project {Path.GetFileNameWithoutExtension(projectPath)} not found, skipping.");
+        return;
+    }
+
     var csproj = File.ReadAllText(projectPath);
     var versionMatch = VersionRegex().Match(csproj);
     if (versionMatch.Success)
