@@ -10,6 +10,7 @@
     <IncludeSymbols>True</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PackAsTool>False</PackAsTool>
+    <Version>1.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

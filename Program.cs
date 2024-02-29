@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Dev;
 
+Console.WriteLine($"{ThisAssembly.Info.Product} v{ThisAssembly.Info.InformationalVersion}");
+
 var path = Environment.CurrentDirectory;
 
 var command = "launch";
