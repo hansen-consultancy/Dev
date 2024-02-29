@@ -1,4 +1,4 @@
-﻿// 'Dev' tool can be used to do some development tasks based on the current directory.
+// 'Dev' tool can be used to do some development tasks based on the current directory.
 
 using System.Diagnostics;
 using System.Text.RegularExpressions;
@@ -16,7 +16,7 @@ if (args.Length > 0)
         Console.WriteLine("Usage: dev [command]");
         Console.WriteLine("Commands:");
         Console.WriteLine("  launch (default) - Launches the current solution in Visual Studio or project in Visual Studio Code.");
-        Console.WriteLine("  bump [major|minor|patch|revision] - Bumps the version of all projects in the current solution or the current project. Defaults to patch.");
+        Console.WriteLine("  bump [major|minor|patch|revision] - Bumps the version of all projects in the current solution or the current project. Defaults to minor.");
         Console.WriteLine("  build - Builds the current solution or project in Release mode.");
         Console.WriteLine("  help - Displays this help message.");
         return;
@@ -29,7 +29,7 @@ if (slnFile != null)
 {
     if (command is "bump")
     {
-        var subCommand = args.Length > 1 ? args[1] : "patch";
+        var subCommand = args.Length > 1 ? args[1] : "minor";
 
         // Will bump all versions inside all csproj files linked in the solution
         var sln = File.ReadAllText(slnFile);
@@ -60,7 +60,7 @@ if (csprojFile != null)
     if (command is "bump")
     {
         // Will bump the version inside the current csproj file
-        BumpProjectVersion(csprojFile, args.Length > 1 ? args[1] : "patch");
+        BumpProjectVersion(csprojFile, args.Length > 1 ? args[1] : "minor");
         return;
     }
 
