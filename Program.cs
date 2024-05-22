@@ -1,6 +1,7 @@
 ﻿// 'Dev' tool can be used to do some development tasks based on the current directory.
 
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Dev;
 
@@ -113,6 +114,15 @@ static void BumpProjectVersion(string projectPath, string subCommand)
 
 static void BuildSolutionOrProject(string path)
 {
+    // Check if we have a build.cmd or build.sh file in the same folder depending on the OS and launch that instead
+    var buildFile = Path.Combine(Path.GetDirectoryName(path) ?? ".", RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "build.cmd" : "build.sh");
+    if (File.Exists(buildFile))
+    {
+        Console.WriteLine($"Building {Path.GetFileName(path)} using {Path.GetFileName(buildFile)}...");
+        Process.Start(buildFile);
+        return;
+    }
+
     // Use dotnet build to build the solution or project in Release mode
     Console.WriteLine($"Building {Path.GetFileName(path)} in Release mode...");
     Process.Start("dotnet", $"build \"{path}\" -c Release");
