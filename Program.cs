@@ -32,11 +32,10 @@ if (args.Length > 0)
         var currentDir = Environment.CurrentDirectory;
         var dockerCommand = $"docker run --rm -v \"{currentDir}:/src\" -w /src ghcr.io/stevehansen/vidyano-frontend-builder:latest";
 
-        ProcessStartInfo processInfo = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? new("cmd.exe", $"/c {dockerCommand}") { UseShellExecute = true }
-            : new("bash", $"-c \"{dockerCommand}\"") { UseShellExecute = true };
-
-        Process.Start(processInfo);
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            Process.Start("cmd.exe", $"/c {dockerCommand}");
+        else
+            Process.Start("bash", $"-c \"{dockerCommand}\"");
         return;
     }
 }
