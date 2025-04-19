@@ -21,7 +21,22 @@ if (args.Length > 0)
         Console.WriteLine("  launch (default) - Launches the current solution in your default IDE or project in Visual Studio Code.");
         Console.WriteLine("  bump [major|minor|patch|revision] - Bumps the version of all projects in the current solution or the current project. Defaults to minor.");
         Console.WriteLine("  build - Builds the current solution or project in Release mode.");
+        Console.WriteLine("  frontend - Runs the Vidyano frontend builder in the current directory.");
         Console.WriteLine("  help - Displays this help message.");
+        return;
+    }
+
+    if (command is "frontend")
+    {
+        Console.WriteLine("Running Vidyano frontend builder...");
+        var currentDir = Environment.CurrentDirectory;
+        var dockerCommand = $"docker run --rm -v \"{currentDir}:/src\" -w /src ghcr.io/stevehansen/vidyano-frontend-builder:latest";
+
+        ProcessStartInfo processInfo = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? new("cmd.exe", $"/c {dockerCommand}") { UseShellExecute = true }
+            : new("bash", $"-c \"{dockerCommand}\"") { UseShellExecute = true };
+
+        Process.Start(processInfo);
         return;
     }
 }
