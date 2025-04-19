@@ -9,8 +9,12 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <IncludeSymbols>True</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <PackAsTool>False</PackAsTool>
+    <PackAsTool>True</PackAsTool>
+    <ToolCommandName>dev</ToolCommandName>
+    <PackageOutputPath>./nupkg</PackageOutputPath>
     <Version>1.3.0</Version>
+    <Description>A development tool to simplify common tasks in .NET projects</Description>
+    <Authors>Hansen Consultancy</Authors>
   </PropertyGroup>
 
   <ItemGroup>
