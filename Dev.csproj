@@ -12,7 +12,7 @@
     <PackAsTool>True</PackAsTool>
     <ToolCommandName>dev</ToolCommandName>
     <PackageOutputPath>./nupkg</PackageOutputPath>
-    <Version>1.3.0</Version>
+    <Version>1.4.0</Version>
     <Description>A development tool to simplify common tasks in .NET projects</Description>
     <Authors>Hansen Consultancy</Authors>
   </PropertyGroup>
