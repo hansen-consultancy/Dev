@@ -1,5 +1,7 @@
 # Dev
 
+[![NuGet version](https://img.shields.io/nuget/v/HC.Dev.svg)](https://www.nuget.org/packages/HC.Dev/)
+
 A .NET tool designed to simplify common development tasks for .NET projects.
 
 ## Installation
@@ -7,13 +9,13 @@ A .NET tool designed to simplify common development tasks for .NET projects.
 You can install the tool globally using the .NET CLI:
 
 ```bash
-dotnet tool install --global Dev
+dotnet tool install --global HC.Dev
 ```
 
 To update to the latest version:
 
 ```bash
-dotnet tool update --global Dev
+dotnet tool update --global HC.Dev
 ```
 
 ## Features
