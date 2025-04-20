@@ -43,8 +43,91 @@ if (args.Length > 0)
     if (command is "frontend")
     {
         Console.WriteLine("Running Vidyano frontend builder...");
-        var currentDir = Environment.CurrentDirectory;
-        var dockerCommand = $"docker run --rm -v \"{currentDir}:/src\" -w /src ghcr.io/stevehansen/vidyano-frontend-builder:latest";
+
+        // NOTE: This expects a build-frontend.sh in the current folder, if it doesn't exist we should ask the user if we should create it.
+
+        var buildFile = Path.Combine(path, "build-frontend.sh");
+        if (!File.Exists(buildFile))
+        {
+            Console.WriteLine($"No {Path.GetFileName(buildFile)} file found in the current directory.");
+            Console.Write("Do you want to create it? (y/N) ");
+            var answer = Console.ReadLine();
+            if (answer?.ToLower() != "y")
+            {
+                Console.WriteLine("Aborting.");
+                return;
+            }
+
+            Console.WriteLine($"Creating {Path.GetFileName(buildFile)} file in the current directory...");
+
+            // We need to find our if the script would need to enter the correct folder first, we'll assume that the folder is the same name as our current folder
+            var folderName = Path.GetFileName(path);
+            // NOTE: This needs to use LF as line endings, not CRLF.
+            var contents = $$"""
+                             #!/usr/bin/env bash
+                             set -euo pipefail
+
+                             # enter your frontend folder, if any
+                             cd {{folderName}}/
+
+                             # install dependencies
+                             npm ci
+
+                             # compile Sass → CSS
+                             find wwwroot -type f -name "*.scss" -print -execdir sh -c 'sass "{}:${1%.scss}.css"' _ {} \;
+
+                             # transpile TypeScript
+                             tsc --project ./tsconfig.json
+
+                             # run any additional build steps
+                             npm run build
+                             """;
+            File.WriteAllText(buildFile, contents.Replace("\r\n", "\n"));
+        }
+        else
+        {
+            // We want to make sure that no CRLF line endings are in the file, so we need to convert it to LF line endings.
+            var content = File.ReadAllText(buildFile);
+            if (content.Contains("\r\n"))
+            {
+                Console.WriteLine($"Converting {Path.GetFileName(buildFile)} to LF line endings...");
+                content = content.Replace("\r\n", "\n");
+                File.WriteAllText(buildFile, content);
+            }
+        }
+
+        // NOTE: We should make sure that the .gitattributes is set up correctly to enforce LF line endings for bash files.
+        var attributesFile = Path.Combine(path, ".gitattributes");
+        if (!File.Exists(attributesFile))
+        {
+            Console.WriteLine($"No {Path.GetFileName(attributesFile)} file found in the current directory.");
+            Console.Write("Do you want to create it? (y/N) ");
+            var answer = Console.ReadLine();
+            if (answer?.ToLower() != "y")
+            {
+                Console.WriteLine("Ignoring.");
+            }
+            else
+            {
+                Console.WriteLine($"Creating {Path.GetFileName(attributesFile)} file in the current directory...");
+                // NOTE: This needs to use LF as line endings, not CRLF.
+                File.WriteAllText(attributesFile, "# Set default behavior to automatically normalize line endings.\n* text=auto\n# Explicitly declare text files we want to always be normalized and converted to native line endings on checkout.\n*.sh text eol=lf");
+            }
+        }
+        else
+        {
+            // Check if the file contains the line for bash files
+            var content = File.ReadAllText(attributesFile);
+            if (!content.Contains("*.sh text eol=lf")) // TODO: Might be as comment
+            {
+                // TODO: Make sure that the *.sh isn't already in the file.
+                Console.WriteLine($"Adding LF line endings for bash files to {Path.GetFileName(attributesFile)}...");
+                content += "\n*.sh text eol=lf";
+                File.WriteAllText(attributesFile, content);
+            }
+        }
+
+        var dockerCommand = $"docker run --rm -v \"{path}:/src\" -w /src ghcr.io/stevehansen/vidyano-frontend-builder:latest";
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             Process.Start("cmd.exe", $"/c {dockerCommand}");
@@ -99,13 +182,13 @@ if (slnFile != null)
                 break;
 
             default:
-            {
-                var newVersion = newVersions.First();
-                Console.WriteLine($"Committing and tagging version {newVersion}...");
-                Process.Start("git", $"commit -m \"build: {newVersion}\"").WaitForExit();
-                Process.Start("git", $"tag {newVersion}").WaitForExit();
-                break;
-            }
+                {
+                    var newVersion = newVersions.First();
+                    Console.WriteLine($"Committing and tagging version {newVersion}...");
+                    Process.Start("git", $"commit -m \"build: {newVersion}\"").WaitForExit();
+                    Process.Start("git", $"tag {newVersion}").WaitForExit();
+                    break;
+                }
         }
 
         return;
