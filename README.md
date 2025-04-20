@@ -92,6 +92,18 @@ Displays help information.
 dev help
 ```
 
+## Command Aliases
+
+The following aliases are available for commonly used commands:
+
+| Alias | Command |
+|-|-|
+| b | build |
+| h | help |
+| f | frontend |
+| v | bump |
+| vc | bump-commit |
+
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for details.

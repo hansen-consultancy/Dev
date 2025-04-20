@@ -14,16 +14,27 @@ if (args.Length > 0)
 {
     command = args[0];
 
+    // Map aliases to full commands
+    command = command switch
+    {
+        "b" => "build",
+        "h" => "help",
+        "f" => "frontend",
+        "v" => "bump",
+        "vc" => "bump-commit",
+        _ => command,
+    };
+
     if (command is "help")
     {
         Console.WriteLine("Usage: dev [command]");
         Console.WriteLine("Commands:");
         Console.WriteLine("  launch (default) - Launches the current solution in your default IDE or project in Visual Studio Code.");
-        Console.WriteLine("  bump [major|minor|patch|revision] - Bumps the version of all projects in the current solution or the current project. Defaults to minor.");
-        Console.WriteLine("  bump-commit [major|minor|patch|revision] - Bumps the version and commits/tag the change in the current solution or project. Defaults to minor.");
-        Console.WriteLine("  build - Builds the current solution or project in Release mode.");
-        Console.WriteLine("  frontend - Runs the Vidyano frontend builder in the current directory.");
-        Console.WriteLine("  help - Displays this help message.");
+        Console.WriteLine("  bump (v) [major|minor|patch|revision] - Bumps the version of all projects in the current solution or the current project. Defaults to minor.");
+        Console.WriteLine("  bump-commit (vc) [major|minor|patch|revision] - Bumps the version and commits/tag the change in the current solution or project. Defaults to minor.");
+        Console.WriteLine("  build (b) - Builds the current solution or project in Release mode.");
+        Console.WriteLine("  frontend (f) - Runs the Vidyano frontend builder in the current directory.");
+        Console.WriteLine("  help (h) - Displays this help message.");
         return;
     }
 
