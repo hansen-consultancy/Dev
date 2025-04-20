@@ -44,6 +44,26 @@ The bump command supports the following options:
 - `patch`: Increments the patch version (e.g., 1.0.0 → 1.0.1)
 - `revision`: Increments the revision version (e.g., 1.0.0.0 → 1.0.0.1)
 
+### Bump and Commit Version
+
+Bumps the version of all projects in the current solution or the current project and creates a git commit and tag for the new version.
+
+```bash
+dev bump-commit [major|minor|patch|revision]
+```
+
+The `bump-commit` command supports the following options:
+- `major`: Increments the major version (e.g., 1.0.0 → 2.0.0)
+- `minor`: Increments the minor version (e.g., 1.0.0 → 1.1.0) - Default
+- `patch`: Increments the patch version (e.g., 1.0.0 → 1.0.1)
+- `revision`: Increments the revision version (e.g., 1.0.0.0 → 1.0.0.1)
+
+This command will:
+1. Update the version in the `.csproj` or all projects in the `.sln`.
+2. Stage the changes using `git add`.
+3. Create a commit with the message `build: {version}`.
+4. Tag the commit with the new version.
+
 ### Build Solution or Project
 
 Builds the current solution or project in Release mode.

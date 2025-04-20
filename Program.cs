@@ -20,6 +20,7 @@ if (args.Length > 0)
         Console.WriteLine("Commands:");
         Console.WriteLine("  launch (default) - Launches the current solution in your default IDE or project in Visual Studio Code.");
         Console.WriteLine("  bump [major|minor|patch|revision] - Bumps the version of all projects in the current solution or the current project. Defaults to minor.");
+        Console.WriteLine("  bump-commit [major|minor|patch|revision] - Bumps the version and commits/tag the change in the current solution or project. Defaults to minor.");
         Console.WriteLine("  build - Builds the current solution or project in Release mode.");
         Console.WriteLine("  frontend - Runs the Vidyano frontend builder in the current directory.");
         Console.WriteLine("  help - Displays this help message.");
@@ -57,6 +58,48 @@ if (slnFile != null)
         return;
     }
 
+    if (command is "bump-commit")
+    {
+        var subCommand = args.Length > 1 ? args[1] : "minor";
+
+        var sln = File.ReadAllText(slnFile);
+        var matches = ProjectRegex().Matches(sln);
+        var newVersions = new HashSet<string>();
+        foreach (Match match in matches)
+        {
+            var projectPath = match.Groups["path"].Value.Replace('\\', Path.DirectorySeparatorChar);
+            var newVersion = BumpProjectVersion(projectPath, subCommand);
+
+            if (newVersion != null)
+            {
+                newVersions.Add(newVersion);
+                Process.Start("git", $"add \"{projectPath}\"").WaitForExit();
+            }
+        }
+
+        switch (newVersions.Count)
+        {
+            case 0:
+                Console.WriteLine("No versions found to bump.");
+                break;
+
+            case > 1:
+                Console.WriteLine("Multiple versions found to bump. Please commit them separately.");
+                break;
+
+            default:
+            {
+                var newVersion = newVersions.First();
+                Console.WriteLine($"Committing and tagging version {newVersion}...");
+                Process.Start("git", $"commit -m \"build: {newVersion}\"").WaitForExit();
+                Process.Start("git", $"tag {newVersion}").WaitForExit();
+                break;
+            }
+        }
+
+        return;
+    }
+
     if (command is "build")
     {
         BuildSolutionOrProject(slnFile);
@@ -81,6 +124,23 @@ if (csprojFile != null)
         return;
     }
 
+    if (command is "bump-commit")
+    {
+        var subCommand = args.Length > 1 ? args[1] : "minor";
+
+        var newVersion = BumpProjectVersion(csprojFile, subCommand);
+
+        if (newVersion != null)
+        {
+            Console.WriteLine($"Committing and tagging version {newVersion}...");
+            Process.Start("git", $"add \"{csprojFile}\"").WaitForExit();
+            Process.Start("git", $"commit -m \"build: {newVersion}\"").WaitForExit();
+            Process.Start("git", $"tag {newVersion}").WaitForExit();
+        }
+
+        return;
+    }
+
     if (command is "build")
     {
         BuildSolutionOrProject(csprojFile);
@@ -95,12 +155,12 @@ if (csprojFile != null)
 // Nothing to do.
 Console.WriteLine("No .sln or .csproj file found in the current directory.");
 
-static void BumpProjectVersion(string projectPath, string subCommand)
+static string? BumpProjectVersion(string projectPath, string subCommand)
 {
     if (!File.Exists(projectPath))
     {
         Console.WriteLine($"Project {Path.GetFileNameWithoutExtension(projectPath)} not found, skipping.");
-        return;
+        return null;
     }
 
     var csproj = File.ReadAllText(projectPath);
@@ -121,9 +181,12 @@ static void BumpProjectVersion(string projectPath, string subCommand)
         Console.WriteLine($"Bumping {Path.GetFileNameWithoutExtension(projectPath)} from {version} to {newVersion}...");
         csproj = VersionRegex().Replace(csproj, $"<Version>{newVersion}</Version>");
         File.WriteAllText(projectPath, csproj);
+
+        return newVersion.ToString();
     }
-    else
-        Console.WriteLine($"No version found in {Path.GetFileNameWithoutExtension(projectPath)}.");
+
+    Console.WriteLine($"No version found in {Path.GetFileNameWithoutExtension(projectPath)}.");
+    return null;
 }
 
 static void BuildSolutionOrProject(string path)
