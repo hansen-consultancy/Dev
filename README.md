@@ -1,5 +1,5 @@
 # Dev
-
+![Logo](logo-128x128.png)
 [![NuGet version](https://img.shields.io/nuget/v/HC.Dev.svg)](https://www.nuget.org/packages/HC.Dev/)
 
 A .NET tool designed to simplify common development tasks for .NET projects.
