@@ -53,7 +53,7 @@ if (args.Length > 0)
 }
 
 // Check if we have a .sln file in the current directory. And if so, open it in Visual Studio.
-var slnFile = Directory.GetFiles(path, "*.sln").FirstOrDefault();
+var slnFile = Directory.GetFiles(path, "*.sln").OrderBy(f => f.Length).FirstOrDefault(); // Prefer the shortest path
 if (slnFile != null)
 {
     if (command is "bump")
