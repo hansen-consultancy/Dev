@@ -1,4 +1,4 @@
-﻿// 'Dev' tool can be used to do some development tasks based on the current directory.
+// 'Dev' tool can be used to do some development tasks based on the current directory.
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -61,10 +61,8 @@ if (slnFile != null)
         var subCommand = args.Length > 1 ? args[1] : "minor";
 
         // Will bump all versions inside all csproj files linked in the solution
-        var sln = File.ReadAllText(slnFile);
-        var matches = ProjectRegex().Matches(sln);
-        foreach (Match match in matches)
-            BumpProjectVersion(match.Groups["path"].Value.Replace('\\', Path.DirectorySeparatorChar), subCommand);
+        foreach (var projectPath in GetProjectPaths(slnFile))
+            BumpProjectVersion(projectPath, subCommand);
 
         return;
     }
@@ -73,12 +71,9 @@ if (slnFile != null)
     {
         var subCommand = args.Length > 1 ? args[1] : "minor";
 
-        var sln = File.ReadAllText(slnFile);
-        var matches = ProjectRegex().Matches(sln);
         var newVersions = new HashSet<string>();
-        foreach (Match match in matches)
+        foreach (var projectPath in GetProjectPaths(slnFile))
         {
-            var projectPath = match.Groups["path"].Value.Replace('\\', Path.DirectorySeparatorChar);
             var newVersion = BumpProjectVersion(projectPath, subCommand);
 
             if (newVersion != null)
@@ -214,6 +209,17 @@ static void BuildSolutionOrProject(string path)
     // Use dotnet build to build the solution or project in Release mode
     Console.WriteLine($"Building {Path.GetFileName(path)} in Release mode...");
     Process.Start("dotnet", $"build \"{path}\" -c Release");
+}
+
+static IReadOnlyCollection<string> GetProjectPaths(string slnFile)
+{
+    // Get the project paths from the solution file
+    var sln = File.ReadAllText(slnFile);
+    var matches = ProjectRegex().Matches(sln);
+    var projectPaths = new List<string>();
+    foreach (Match match in matches)
+        projectPaths.Add(match.Groups["path"].Value.Replace('\\', Path.DirectorySeparatorChar));
+    return projectPaths;
 }
 
 partial class Program
