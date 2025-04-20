@@ -1,9 +1,11 @@
-// 'Dev' tool can be used to do some development tasks based on the current directory.
+﻿// 'Dev' tool can be used to do some development tasks based on the current directory.
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Dev;
+using Microsoft.VisualStudio.SolutionPersistence.Model;
+using Microsoft.VisualStudio.SolutionPersistence.Serializer;
 
 Console.WriteLine($"{ThisAssembly.Info.Product} v{ThisAssembly.Info.InformationalVersion}");
 
@@ -52,8 +54,11 @@ if (args.Length > 0)
     }
 }
 
-// Check if we have a .sln file in the current directory. And if so, open it in Visual Studio.
-var slnFile = Directory.GetFiles(path, "*.sln").OrderBy(f => f.Length).FirstOrDefault(); // Prefer the shortest path
+// Check if we have a .sln or .slnx file in the current directory.
+var slnFile = Directory.GetFiles(path, "*.sln*")
+    .Where(f => f.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
+    .OrderBy(f => f.Length)
+    .FirstOrDefault(); // Prefer the shortest path
 if (slnFile != null)
 {
     if (command is "bump")
@@ -214,19 +219,43 @@ static void BuildSolutionOrProject(string path)
 static IReadOnlyCollection<string> GetProjectPaths(string slnFile)
 {
     // Get the project paths from the solution file
-    var sln = File.ReadAllText(slnFile);
-    var matches = ProjectRegex().Matches(sln);
+    var serializer = SolutionSerializers.GetSerializerByMoniker(slnFile);
+    if (serializer is null)
+    {
+        Console.WriteLine($"Unable to find a serializer for {slnFile}");
+        return [];
+    }
+
+    SolutionModel solution;
+    try
+    {
+        solution = serializer.OpenAsync(slnFile, CancellationToken.None).GetAwaiter().GetResult();
+    }
+    catch (SolutionException ex)
+    {
+        Console.WriteLine($"Error opening solution file: {ex.Message}");
+        return [];
+    }
+
     var projectPaths = new List<string>();
-    foreach (Match match in matches)
-        projectPaths.Add(match.Groups["path"].Value.Replace('\\', Path.DirectorySeparatorChar));
+    foreach (var solutionProject in solution.SolutionProjects)
+    {
+        var projectPath = solutionProject.FilePath?.Replace('\\', Path.DirectorySeparatorChar);
+        if (string.IsNullOrEmpty(projectPath))
+            continue;
+
+        // Convert to absolute path if needed
+        if (!Path.IsPathRooted(projectPath))
+            projectPath = Path.Combine(Path.GetDirectoryName(slnFile) ?? "", projectPath);
+
+        projectPaths.Add(projectPath);
+    }
+
     return projectPaths;
 }
 
 partial class Program
 {
-    [GeneratedRegex("Project\\(\"\\{.*\\}\"\\)\\s*=\\s*\"(?<name>.*)\",\\s*\"(?<path>.*)\",\\s*\"\\{.*\\}\"")]
-    private static partial Regex ProjectRegex();
-
     [GeneratedRegex("<Version>(?<version>.*)</Version>")]
     private static partial Regex VersionRegex();
 }
