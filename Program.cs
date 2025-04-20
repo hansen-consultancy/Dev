@@ -6,8 +6,10 @@ using System.Text.RegularExpressions;
 using Dev;
 using Microsoft.VisualStudio.SolutionPersistence.Model;
 using Microsoft.VisualStudio.SolutionPersistence.Serializer;
+using Spectre.Console;
 
-Console.WriteLine($"{ThisAssembly.Info.Product} v{ThisAssembly.Info.InformationalVersion}");
+var informationalVersion = ThisAssembly.Info.InformationalVersion.Split('+', 2);
+AnsiConsole.MarkupLine($"[bold green]{ThisAssembly.Info.Product}[/] v[blue]{informationalVersion[0]}[/]+{informationalVersion[1][..7]}");
 
 var path = Environment.CurrentDirectory;
 
@@ -20,7 +22,7 @@ if (args.Length > 0)
     command = command switch
     {
         "b" => "build",
-        "h" => "help",
+        "h" or "?" => "help",
         "f" => "frontend",
         "v" => "bump",
         "vc" => "bump-commit",
@@ -29,36 +31,39 @@ if (args.Length > 0)
 
     if (command is "help")
     {
-        Console.WriteLine("Usage: dev [command]");
-        Console.WriteLine("Commands:");
-        Console.WriteLine("  launch (default) - Launches the current solution in your default IDE or project in Visual Studio Code.");
-        Console.WriteLine("  bump (v) [major|minor|patch|revision] - Bumps the version of all projects in the current solution or the current project. Defaults to minor.");
-        Console.WriteLine("  bump-commit (vc) [major|minor|patch|revision] - Bumps the version and commits/tag the change in the current solution or project. Defaults to minor.");
-        Console.WriteLine("  build (b) - Builds the current solution or project in Release mode.");
-        Console.WriteLine("  frontend (f) - Runs the Vidyano frontend builder in the current directory.");
-        Console.WriteLine("  help (h) - Displays this help message.");
+        var table = new Table()
+            .Title("[yellow]Dev Tool Commands[/]")
+            .AddColumn(new TableColumn("[green]Command[/]").LeftAligned())
+            .AddColumn(new TableColumn("[blue]Description[/]").LeftAligned());
+
+        table.AddRow("launch (default)", "Launches the current solution in your default IDE or project in Visual Studio Code.");
+        table.AddRow("bump (v) [major|minor|patch|revision]".EscapeMarkup(), "Bumps the version of all projects in the current solution or the current project. Defaults to minor.");
+        table.AddRow("bump-commit (vc) [major|minor|patch|revision]".EscapeMarkup(), "Bumps the version and commits/tag the change in the current solution or project. Defaults to minor.");
+        table.AddRow("build (b)", "Builds the current solution or project in Release mode.");
+        table.AddRow("frontend (f)", "Runs the Vidyano frontend builder in the current directory.");
+        table.AddRow("help (h)", "Displays this help message.");
+
+        AnsiConsole.Write(table);
         return;
     }
 
     if (command is "frontend")
     {
-        Console.WriteLine("Running Vidyano frontend builder...");
+        AnsiConsole.MarkupLine("[green]Running Vidyano frontend builder...[/]");
 
         // NOTE: This expects a build-frontend.sh in the current folder, if it doesn't exist we should ask the user if we should create it.
 
         var buildFile = Path.Combine(path, "build-frontend.sh");
         if (!File.Exists(buildFile))
         {
-            Console.WriteLine($"No {Path.GetFileName(buildFile)} file found in the current directory.");
-            Console.Write("Do you want to create it? (y/N) ");
-            var answer = Console.ReadLine();
-            if (answer?.ToLower() != "y")
+            AnsiConsole.MarkupLine($"[red]No {Path.GetFileName(buildFile)} file found in the current directory.[/]");
+            if (!AnsiConsole.Prompt(new ConfirmationPrompt("Do you want to create it?")))
             {
-                Console.WriteLine("Aborting.");
+                AnsiConsole.MarkupLine("[red]Aborting.[/]");
                 return;
             }
 
-            Console.WriteLine($"Creating {Path.GetFileName(buildFile)} file in the current directory...");
+            AnsiConsole.MarkupLine($"[green]Creating[/] {Path.GetFileName(buildFile)} [green]file in the current directory...[/]");
 
             // We need to find our if the script would need to enter the correct folder first, we'll assume that the folder is the same name as our current folder
             var folderName = Path.GetFileName(path);
@@ -90,7 +95,7 @@ if (args.Length > 0)
             var content = File.ReadAllText(buildFile);
             if (content.Contains("\r\n"))
             {
-                Console.WriteLine($"Converting {Path.GetFileName(buildFile)} to LF line endings...");
+                AnsiConsole.MarkupLine($"[yellow]Converting[/] {Path.GetFileName(buildFile)} [yellow]to LF line endings...[/]");
                 content = content.Replace("\r\n", "\n");
                 File.WriteAllText(buildFile, content);
             }
@@ -100,16 +105,14 @@ if (args.Length > 0)
         var attributesFile = Path.Combine(path, ".gitattributes");
         if (!File.Exists(attributesFile))
         {
-            Console.WriteLine($"No {Path.GetFileName(attributesFile)} file found in the current directory.");
-            Console.Write("Do you want to create it? (y/N) ");
-            var answer = Console.ReadLine();
-            if (answer?.ToLower() != "y")
+            AnsiConsole.MarkupLine($"[red]No {Path.GetFileName(attributesFile)} file found in the current directory.[/]");
+            if (!AnsiConsole.Prompt(new ConfirmationPrompt("Do you want to create it?")))
             {
-                Console.WriteLine("Ignoring.");
+                AnsiConsole.MarkupLine("[yellow]Ignoring.[/]");
             }
             else
             {
-                Console.WriteLine($"Creating {Path.GetFileName(attributesFile)} file in the current directory...");
+                AnsiConsole.MarkupLine($"[green]Creating[/] {Path.GetFileName(attributesFile)} [green]file in the current directory...[/]");
                 // NOTE: This needs to use LF as line endings, not CRLF.
                 File.WriteAllText(attributesFile, "# Set default behavior to automatically normalize line endings.\n* text=auto\n# Explicitly declare text files we want to always be normalized and converted to native line endings on checkout.\n*.sh text eol=lf");
             }
@@ -121,7 +124,7 @@ if (args.Length > 0)
             if (!content.Contains("*.sh text eol=lf")) // TODO: Might be as comment
             {
                 // TODO: Make sure that the *.sh isn't already in the file.
-                Console.WriteLine($"Adding LF line endings for bash files to {Path.GetFileName(attributesFile)}...");
+                AnsiConsole.MarkupLine($"[yellow]Adding LF line endings for bash files to {Path.GetFileName(attributesFile)}...[/]");
                 content += "\n*.sh text eol=lf";
                 File.WriteAllText(attributesFile, content);
             }
@@ -174,17 +177,17 @@ if (slnFile != null)
         switch (newVersions.Count)
         {
             case 0:
-                Console.WriteLine("No versions found to bump.");
+                AnsiConsole.MarkupLine("[yellow]No versions found to bump.[/]");
                 break;
 
             case > 1:
-                Console.WriteLine("Multiple versions found to bump. Please commit them separately.");
+                AnsiConsole.MarkupLine("[red]Multiple versions found to bump. Please commit them separately.[/]");
                 break;
 
             default:
                 {
                     var newVersion = newVersions.First();
-                    Console.WriteLine($"Committing and tagging version {newVersion}...");
+                    AnsiConsole.MarkupLine($"[green]Committing and tagging version {newVersion}...[/]");
                     Process.Start("git", $"commit -m \"build: {newVersion}\"").WaitForExit();
                     Process.Start("git", $"tag {newVersion}").WaitForExit();
                     break;
@@ -200,7 +203,7 @@ if (slnFile != null)
         return;
     }
 
-    Console.WriteLine($"Opening {slnFile} in default IDE...");
+    AnsiConsole.MarkupLine($"[green]Opening[/] {slnFile} [green]in default IDE...[/]");
     Process.Start(new ProcessStartInfo(slnFile) { UseShellExecute = true });
     return;
 }
@@ -226,7 +229,7 @@ if (csprojFile != null)
 
         if (newVersion != null)
         {
-            Console.WriteLine($"Committing and tagging version {newVersion}...");
+            AnsiConsole.MarkupLine($"[green]Committing and tagging version {newVersion}...[/]");
             Process.Start("git", $"add \"{csprojFile}\"").WaitForExit();
             Process.Start("git", $"commit -m \"build: {newVersion}\"").WaitForExit();
             Process.Start("git", $"tag {newVersion}").WaitForExit();
@@ -241,19 +244,19 @@ if (csprojFile != null)
         return;
     }
 
-    Console.WriteLine($"Opening {csprojFile} in Visual Studio Code...");
+    AnsiConsole.MarkupLine($"[green]Opening[/] {csprojFile} [green]in Visual Studio Code...[/]");
     Process.Start("code", csprojFile);
     return;
 }
 
 // Nothing to do.
-Console.WriteLine("No .sln or .csproj file found in the current directory.");
+AnsiConsole.MarkupLine("[red]No .sln, .slnx or .csproj file found in the current directory.[/]");
 
 static string? BumpProjectVersion(string projectPath, string subCommand)
 {
     if (!File.Exists(projectPath))
     {
-        Console.WriteLine($"Project {Path.GetFileNameWithoutExtension(projectPath)} not found, skipping.");
+        AnsiConsole.MarkupLine($"[red]Project {Path.GetFileNameWithoutExtension(projectPath)} not found, skipping.[/]");
         return null;
     }
 
@@ -272,14 +275,14 @@ static string? BumpProjectVersion(string projectPath, string subCommand)
             _ => new SemVer(semver.Major, semver.Minor, semver.Build, semver.Fix + 1, semver.Suffix, semver.BuildVariables),
         };
 
-        Console.WriteLine($"Bumping {Path.GetFileNameWithoutExtension(projectPath)} from {version} to {newVersion}...");
+        AnsiConsole.MarkupLine($"[green]Bumping[/] {Path.GetFileNameWithoutExtension(projectPath)} [green]from[/] [blue]{version}[/] [green]to[/] [yellow]{newVersion}[/]");
         csproj = VersionRegex().Replace(csproj, $"<Version>{newVersion}</Version>");
         File.WriteAllText(projectPath, csproj);
 
         return newVersion.ToString();
     }
 
-    Console.WriteLine($"No version found in {Path.GetFileNameWithoutExtension(projectPath)}.");
+    AnsiConsole.MarkupLine($"[red]No version found in {Path.GetFileNameWithoutExtension(projectPath)}.[/]");
     return null;
 }
 
@@ -289,13 +292,13 @@ static void BuildSolutionOrProject(string path)
     var buildFile = Path.Combine(Path.GetDirectoryName(path) ?? ".", RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "build.cmd" : "build.sh");
     if (File.Exists(buildFile))
     {
-        Console.WriteLine($"Building {Path.GetFileName(path)} using {Path.GetFileName(buildFile)}...");
+        AnsiConsole.MarkupLine($"[green]Building[/] {Path.GetFileName(path)} [green]using[/] {Path.GetFileName(buildFile)}[green]...[/]");
         Process.Start(buildFile);
         return;
     }
 
     // Use dotnet build to build the solution or project in Release mode
-    Console.WriteLine($"Building {Path.GetFileName(path)} in Release mode...");
+    AnsiConsole.WriteLine($"[green]Building[/] {Path.GetFileName(path)} [green]in Release mode...[/]");
     Process.Start("dotnet", $"build \"{path}\" -c Release");
 }
 
@@ -305,7 +308,7 @@ static IReadOnlyCollection<string> GetProjectPaths(string slnFile)
     var serializer = SolutionSerializers.GetSerializerByMoniker(slnFile);
     if (serializer is null)
     {
-        Console.WriteLine($"Unable to find a serializer for {slnFile}");
+        AnsiConsole.MarkupLine($"[red]Unable to find a serializer for {slnFile}[/]");
         return [];
     }
 
@@ -316,7 +319,7 @@ static IReadOnlyCollection<string> GetProjectPaths(string slnFile)
     }
     catch (SolutionException ex)
     {
-        Console.WriteLine($"Error opening solution file: {ex.Message}");
+        AnsiConsole.MarkupLine($"[red]Error opening solution file:[/] {ex.Message}");
         return [];
     }
 
