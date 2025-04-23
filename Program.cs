@@ -133,9 +133,9 @@ if (args.Length > 0)
         var dockerCommand = $"docker run --rm -v \"{path}:/src\" -w /src ghcr.io/stevehansen/vidyano-frontend-builder:latest";
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            Process.Start("cmd.exe", $"/c {dockerCommand}");
+            Process.Start("cmd.exe", $"/c {dockerCommand}").WaitForExit();
         else
-            Process.Start("bash", $"-c \"{dockerCommand}\"");
+            Process.Start("bash", $"-c \"{dockerCommand}\"").WaitForExit();
         return;
     }
 }
@@ -293,13 +293,13 @@ static void BuildSolutionOrProject(string path)
     if (File.Exists(buildFile))
     {
         AnsiConsole.MarkupLine($"[green]Building[/] {Path.GetFileName(path)} [green]using[/] {Path.GetFileName(buildFile)}[green]...[/]");
-        Process.Start(buildFile);
+        Process.Start(buildFile).WaitForExit();
         return;
     }
 
     // Use dotnet build to build the solution or project in Release mode
     AnsiConsole.WriteLine($"[green]Building[/] {Path.GetFileName(path)} [green]in Release mode...[/]");
-    Process.Start("dotnet", $"build \"{path}\" -c Release");
+    Process.Start("dotnet", $"build \"{path}\" -c Release").WaitForExit();
 }
 
 static IReadOnlyCollection<string> GetProjectPaths(string slnFile)
