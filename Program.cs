@@ -79,7 +79,7 @@ if (args.Length > 0)
                              npm ci
 
                              # Generate vidyano libman files
-                             dotnet restore
+                             dotnet build
                                  
                              # compile Sass → CSS
                              find wwwroot -type f -name "*.scss" -print -execdir sh -c 'sass "{}:${1%.scss}.css"' _ {} \;
