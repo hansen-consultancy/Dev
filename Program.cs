@@ -162,7 +162,7 @@ if (args.Length > 0)
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to delete {folderPath}: {ex.Message}");
+                AnsiConsole.WriteException(ex);
             }
         }
         return;
