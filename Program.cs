@@ -41,6 +41,7 @@ if (args.Length > 0)
         table.AddRow("bump-commit (vc) [major|minor|patch|revision]".EscapeMarkup(), "Bumps the version and commits/tag the change in the current solution or project. Defaults to minor.");
         table.AddRow("build (b)", "Builds the current solution or project in Release mode.");
         table.AddRow("frontend (f)", "Runs the Vidyano frontend builder in the current directory.");
+        table.AddRow("clean", "Clean the current folder by removing [yellow]bin[/], [yellow]obj[/], [yellow]tmp-build[/], [yellow]bin-windows[/], [yellow]bin-linux[/], [yellow]obj-windows[/], [yellow]obj-linux[/] folders. Use this command if you experience build issues.");
         table.AddRow("help (h)", "Displays this help message.");
 
         AnsiConsole.Write(table);
@@ -136,6 +137,23 @@ if (args.Length > 0)
             Process.Start("cmd.exe", $"/c {dockerCommand}").WaitForExit();
         else
             Process.Start("bash", $"-c \"{dockerCommand}\"").WaitForExit();
+        return;
+    }
+
+    if (command is "clean")
+    {
+        AnsiConsole.MarkupLine("[green]Cleaning current directory...[/]");
+        // Clean the current directory by removing bin, obj, tmp-build, bin-windows, bin-linux, obj-windows and obj-linux folders
+        var foldersToDelete = new[] { "bin", "obj", "tmp-build", "bin-windows", "bin-linux", "obj-windows", "obj-linux" };
+        foreach (var folder in foldersToDelete)
+        {
+            var folderPath = Path.Combine(path, folder);
+            if (Directory.Exists(folderPath))
+            {
+                AnsiConsole.MarkupLine($"[red]Deleting[/] {folderPath} [red]folder...[/]");
+                Directory.Delete(folderPath, true);
+            }
+        }
         return;
     }
 }
