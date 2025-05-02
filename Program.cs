@@ -162,7 +162,7 @@ if (args.Length > 0)
             }
             catch (Exception ex)
             {
-                AnsiConsole.WriteException(ex);
+                AnsiConsole.WriteException(ex, ExceptionFormats.ShowLinks);
             }
         }
         return;
