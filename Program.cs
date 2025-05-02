@@ -143,15 +143,26 @@ if (args.Length > 0)
     if (command is "clean")
     {
         AnsiConsole.MarkupLine("[green]Cleaning current directory...[/]");
+
         // Clean the current directory by removing bin, obj, tmp-build, bin-windows, bin-linux, obj-windows and obj-linux folders
         var foldersToDelete = new[] { "bin", "obj", "tmp-build", "bin-windows", "bin-linux", "obj-windows", "obj-linux" };
-        foreach (var folder in foldersToDelete)
+        var allDirectories = Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories)
+            .Where(dir => !dir.Contains("node_modules", StringComparison.OrdinalIgnoreCase))
+            .Where(dir => foldersToDelete.Contains(Path.GetFileName(dir), StringComparer.OrdinalIgnoreCase));
+
+        foreach (var folderPath in allDirectories)
         {
-            var folderPath = Path.Combine(path, folder);
-            if (Directory.Exists(folderPath))
+            try
             {
-                AnsiConsole.MarkupLine($"[red]Deleting[/] {folderPath} [red]folder...[/]");
-                Directory.Delete(folderPath, true);
+                if (Directory.Exists(folderPath))
+                {
+                    AnsiConsole.MarkupLine($"[red]Deleting[/] {folderPath} [red]folder...[/]");
+                    Directory.Delete(folderPath, recursive: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to delete {folderPath}: {ex.Message}");
             }
         }
         return;
