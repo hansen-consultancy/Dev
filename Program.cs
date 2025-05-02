@@ -298,7 +298,7 @@ static void BuildSolutionOrProject(string path)
     }
 
     // Use dotnet build to build the solution or project in Release mode
-    AnsiConsole.WriteLine($"[green]Building[/] {Path.GetFileName(path)} [green]in Release mode...[/]");
+    AnsiConsole.MarkupLine($"[green]Building[/] {Path.GetFileName(path)} [green]in Release mode...[/]");
     Process.Start("dotnet", $"build \"{path}\" -c Release").WaitForExit();
 }
 
