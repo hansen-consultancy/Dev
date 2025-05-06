@@ -82,7 +82,7 @@ Runs the Vidyano frontend builder in the current directory using Docker.
 dev frontend
 ```
 
-This command uses the `ghcr.io/stevehansen/vidyano-frontend-builder` Docker image to build your frontend.
+This command uses the [`ghcr.io/stevehansen/vidyano-frontend-builder`](https://github.com/stevehansen/vidyano-frontend-builder) Docker image to build your frontend.
 
 ### Clean working directory
 
