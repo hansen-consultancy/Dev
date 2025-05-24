@@ -3,6 +3,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using Dev;
 using Microsoft.VisualStudio.SolutionPersistence.Model;
 using Microsoft.VisualStudio.SolutionPersistence.Serializer;
@@ -13,29 +14,75 @@ AnsiConsole.MarkupLine($"[bold green]{ThisAssembly.Info.Product}[/] v[blue]{info
 
 var path = Environment.CurrentDirectory;
 
-var command = "launch";
+var configFile = Path.Combine(path, "commands.json");
+List<ConfigCommand>? configCommands = null;
+ConfigCommand? defaultConfig = null;
+if (File.Exists(configFile))
+{
+    try
+    {
+        configCommands = JsonSerializer.Deserialize<List<ConfigCommand>>(File.ReadAllText(configFile));
+        defaultConfig = configCommands?.FirstOrDefault(c => c.Default);
+    }
+    catch (Exception ex)
+    {
+        AnsiConsole.MarkupLine($"[red]Error reading commands.json:[/] {ex.Message}");
+        return;
+    }
+
+}
+
+string command;
 if (args.Length > 0)
 {
     command = args[0];
+}
+else if (configCommands is not null)
+{
+    command = defaultConfig?.Name ?? "help";
+}
+else
+{
+    command = "launch";
+}
 
-    // Map aliases to full commands
-    command = command switch
+// Map aliases to full commands
+command = command switch
+{
+    "b" => "build",
+    "h" or "?" => "help",
+    "f" => "frontend",
+    "v" => "bump",
+    "vc" => "bump-commit",
+    _ => command,
+};
+
+if (command is "help")
+{
+    var table = new Table()
+        .Title("[yellow]Dev Tool Commands[/]")
+        .AddColumn(new TableColumn("[green]Command[/]").LeftAligned())
+        .AddColumn(new TableColumn("[blue]Description[/]").LeftAligned());
+
+    if (configCommands is not null)
     {
-        "b" => "build",
-        "h" or "?" => "help",
-        "f" => "frontend",
-        "v" => "bump",
-        "vc" => "bump-commit",
-        _ => command,
-    };
-
-    if (command is "help")
+        foreach (var c in configCommands)
+        {
+            var desc = !string.IsNullOrEmpty(c.BuiltIn) ? c.BuiltIn switch
+            {
+                "launch" => "Launches the current solution in your default IDE or project in Visual Studio Code.",
+                "bump" => "Bumps the version of all projects in the current solution or the current project. Defaults to minor.",
+                "bump-commit" => "Bumps the version and commits/tag the change in the current solution or project. Defaults to minor.",
+                "build" => "Builds the current solution or project in Release mode.",
+                "frontend" => "Runs the Vidyano frontend builder in the current directory.",
+                "clean" => "Clean the current folder by removing [yellow]bin[/], [yellow]obj[/], [yellow]tmp-build[/], [yellow]bin-windows[/], [yellow]bin-linux[/], [yellow]obj-windows[/], [yellow]obj-linux[/] folders. Use this command if you experience build issues.",
+                _ => c.BuiltIn
+            } : (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? c.Windows : c.NonWindows) ?? string.Empty;
+            table.AddRow($"{c.Name}{(c.Default ? " (default)" : string.Empty)}".EscapeMarkup(), desc.EscapeMarkup());
+        }
+    }
+    else
     {
-        var table = new Table()
-            .Title("[yellow]Dev Tool Commands[/]")
-            .AddColumn(new TableColumn("[green]Command[/]").LeftAligned())
-            .AddColumn(new TableColumn("[blue]Description[/]").LeftAligned());
-
         table.AddRow("launch (default)", "Launches the current solution in your default IDE or project in Visual Studio Code.");
         table.AddRow("bump (v) [major|minor|patch|revision]".EscapeMarkup(), "Bumps the version of all projects in the current solution or the current project. Defaults to minor.");
         table.AddRow("bump-commit (vc) [major|minor|patch|revision]".EscapeMarkup(), "Bumps the version and commits/tag the change in the current solution or project. Defaults to minor.");
@@ -43,10 +90,50 @@ if (args.Length > 0)
         table.AddRow("frontend (f)", "Runs the Vidyano frontend builder in the current directory.");
         table.AddRow("clean", "Clean the current folder by removing [yellow]bin[/], [yellow]obj[/], [yellow]tmp-build[/], [yellow]bin-windows[/], [yellow]bin-linux[/], [yellow]obj-windows[/], [yellow]obj-linux[/] folders. Use this command if you experience build issues.");
         table.AddRow("help (h)", "Displays this help message.");
+    }
 
-        AnsiConsole.Write(table);
+    AnsiConsole.Write(table);
+    return;
+}
+
+if (configCommands is not null && command != "help")
+{
+    var cfgCmd = configCommands.FirstOrDefault(c => string.Equals(c.Name, command, StringComparison.OrdinalIgnoreCase));
+    if (cfgCmd is not null)
+    {
+        if (!string.IsNullOrEmpty(cfgCmd.BuiltIn))
+        {
+            command = cfgCmd.BuiltIn;
+        }
+        else
+        {
+            var sln = Directory.GetFiles(path, "*.sln*")
+                .Where(f => f.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f.Length)
+                .FirstOrDefault();
+            var csproj = Directory.GetFiles(path, "*.csproj").FirstOrDefault();
+
+            var cmdLine = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? cfgCmd.Windows : cfgCmd.NonWindows;
+            if (string.IsNullOrWhiteSpace(cmdLine))
+            {
+                AnsiConsole.MarkupLine("[red]No command defined for the current environment.[/]");
+                return;
+            }
+            cmdLine = ReplaceVariables(cmdLine, sln, csproj, path);
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                Process.Start("cmd.exe", $"/c {cmdLine}").WaitForExit();
+            else
+                Process.Start("bash", $"-c \"{cmdLine}\"").WaitForExit();
+            return;
+        }
+    }
+    else
+    {
+        AnsiConsole.MarkupLine($"[red]Unknown command: {command}[/]");
         return;
     }
+
+}
 
     if (command is "frontend")
     {
@@ -167,7 +254,6 @@ if (args.Length > 0)
         }
         return;
     }
-}
 
 // Check if we have a .sln or .slnx file in the current directory.
 var slnFile = Directory.GetFiles(path, "*.sln*")
@@ -369,8 +455,26 @@ static IReadOnlyCollection<string> GetProjectPaths(string slnFile)
     return projectPaths;
 }
 
+static string ReplaceVariables(string command, string? slnFile, string? csprojFile, string path)
+{
+    return command
+        .Replace("{sln}", slnFile ?? string.Empty)
+        .Replace("{project}", csprojFile ?? string.Empty)
+        .Replace("{dir}", path);
+}
+
 partial class Program
 {
     [GeneratedRegex("<Version>(?<version>.*)</Version>")]
     private static partial Regex VersionRegex();
+}
+
+internal sealed class ConfigCommand
+{
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+    public bool Default { get; set; }
+    public string? BuiltIn { get; set; }
+    public string? Windows { get; set; }
+    public string? NonWindows { get; set; }
 }
