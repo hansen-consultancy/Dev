@@ -98,7 +98,7 @@ if (command is "help")
     return;
 }
 
-if (configCommands is not null && command != "help")
+if (configCommands is not null)
 {
     var cfgCmd = configCommands.FirstOrDefault(c => string.Equals(c.Name, command, StringComparison.OrdinalIgnoreCase));
     if (cfgCmd is not null)
