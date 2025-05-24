@@ -92,6 +92,14 @@ Displays help information.
 dev help
 ```
 
+### Custom Commands
+
+If a `commands.json` file exists in the current directory, it defines the available commands. Each entry can either reference a built-in command or specify processes to run on Windows and non-Windows systems. A command can be marked as the default using `"default": true`.
+
+Placeholders `{sln}`, `{project}` and `{dir}` in the command lines are replaced with the detected solution file, project file and current directory.
+
+When no default is specified and you run `dev` without arguments, the tool lists all commands found in `commands.json`.
+
 ## Command Aliases
 
 The following aliases are available for commonly used commands:
