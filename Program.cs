@@ -10,7 +10,7 @@ using Microsoft.VisualStudio.SolutionPersistence.Serializer;
 using Spectre.Console;
 
 var informationalVersion = ThisAssembly.Info.InformationalVersion.Split('+', 2);
-AnsiConsole.MarkupLine($"[bold green]{ThisAssembly.Info.Product}[/] v[blue]{informationalVersion[0]}[/]+{informationalVersion[1][..7]}");
+AnsiConsole.MarkupLine($"[bold green]{ThisAssembly.Info.Product}[/] v[green]{informationalVersion[0]}[/]+{informationalVersion[1][..7]}");
 
 var path = Environment.CurrentDirectory;
 
@@ -26,27 +26,22 @@ if (File.Exists(configFile))
     }
     catch (Exception ex)
     {
-        AnsiConsole.MarkupLine($"[red]Error reading commands.json:[/] {ex.Message}");
+        AnsiConsole.MarkupLine("[red]Error reading commands.json:[/]");
+        AnsiConsole.WriteException(ex);
         return;
     }
-
 }
 
 string command;
 if (args.Length > 0)
-{
     command = args[0];
-}
 else if (configCommands is not null)
-{
     command = defaultConfig?.Name ?? "help";
-}
 else
-{
     command = "launch";
-}
 
 // Map aliases to full commands
+// TODO: Make this configurable in commands.json
 command = command switch
 {
     "b" => "build",
@@ -68,6 +63,9 @@ if (command is "help")
     {
         foreach (var c in configCommands)
         {
+            if (c.Name is "help" or "h")
+                continue; // Skip help command
+
             var desc = !string.IsNullOrEmpty(c.BuiltIn) ? c.BuiltIn switch
             {
                 "launch" => "Launches the current solution in your default IDE or project in Visual Studio Code.",
@@ -76,8 +74,10 @@ if (command is "help")
                 "build" => "Builds the current solution or project in Release mode.",
                 "frontend" => "Runs the Vidyano frontend builder in the current directory.",
                 "clean" => "Clean the current folder by removing [yellow]bin[/], [yellow]obj[/], [yellow]tmp-build[/], [yellow]bin-windows[/], [yellow]bin-linux[/], [yellow]obj-windows[/], [yellow]obj-linux[/] folders. Use this command if you experience build issues.",
-                _ => c.BuiltIn
-            } : (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? c.Windows : c.NonWindows) ?? string.Empty;
+                _ => c.BuiltIn,
+            } : c.Description ?? (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? c.Windows : c.NonWindows) ?? string.Empty;
+
+            // TODO: Need to show aliases as well, e.g. "bump (v) [major|minor|patch|revision]" and optional parameters like "[major|minor|patch|revision]"
             table.AddRow($"{c.Name}{(c.Default ? " (default)" : string.Empty)}".EscapeMarkup(), desc.EscapeMarkup());
         }
     }
@@ -89,8 +89,10 @@ if (command is "help")
         table.AddRow("build (b)", "Builds the current solution or project in Release mode.");
         table.AddRow("frontend (f)", "Runs the Vidyano frontend builder in the current directory.");
         table.AddRow("clean", "Clean the current folder by removing [yellow]bin[/], [yellow]obj[/], [yellow]tmp-build[/], [yellow]bin-windows[/], [yellow]bin-linux[/], [yellow]obj-windows[/], [yellow]obj-linux[/] folders. Use this command if you experience build issues.");
-        table.AddRow("help (h)", "Displays this help message.");
     }
+
+    // Help is always available
+    table.AddRow("help (h)", "Displays this help message.");
 
     AnsiConsole.Write(table);
     return;
@@ -101,11 +103,7 @@ if (configCommands is not null && command != "help")
     var cfgCmd = configCommands.FirstOrDefault(c => string.Equals(c.Name, command, StringComparison.OrdinalIgnoreCase));
     if (cfgCmd is not null)
     {
-        if (!string.IsNullOrEmpty(cfgCmd.BuiltIn))
-        {
-            command = cfgCmd.BuiltIn;
-        }
-        else
+        if (string.IsNullOrEmpty(cfgCmd.BuiltIn))
         {
             var sln = Directory.GetFiles(path, "*.sln*")
                 .Where(f => f.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
@@ -119,6 +117,7 @@ if (configCommands is not null && command != "help")
                 AnsiConsole.MarkupLine("[red]No command defined for the current environment.[/]");
                 return;
             }
+
             cmdLine = ReplaceVariables(cmdLine, sln, csproj, path);
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 Process.Start("cmd.exe", $"/c {cmdLine}").WaitForExit();
@@ -126,37 +125,38 @@ if (configCommands is not null && command != "help")
                 Process.Start("bash", $"-c \"{cmdLine}\"").WaitForExit();
             return;
         }
+
+        command = cfgCmd.BuiltIn;
     }
     else
     {
         AnsiConsole.MarkupLine($"[red]Unknown command: {command}[/]");
         return;
     }
-
 }
 
-    if (command is "frontend")
+if (command is "frontend")
+{
+    AnsiConsole.MarkupLine("[green]Running Vidyano frontend builder...[/]");
+
+    // NOTE: This expects a build-frontend.sh in the current folder, if it doesn't exist we should ask the user if we should create it.
+
+    var buildFile = Path.Combine(path, "build-frontend.sh");
+    if (!File.Exists(buildFile))
     {
-        AnsiConsole.MarkupLine("[green]Running Vidyano frontend builder...[/]");
-
-        // NOTE: This expects a build-frontend.sh in the current folder, if it doesn't exist we should ask the user if we should create it.
-
-        var buildFile = Path.Combine(path, "build-frontend.sh");
-        if (!File.Exists(buildFile))
+        AnsiConsole.MarkupLine($"[red]No {Path.GetFileName(buildFile)} file found in the current directory.[/]");
+        if (!AnsiConsole.Prompt(new ConfirmationPrompt("Do you want to create it?")))
         {
-            AnsiConsole.MarkupLine($"[red]No {Path.GetFileName(buildFile)} file found in the current directory.[/]");
-            if (!AnsiConsole.Prompt(new ConfirmationPrompt("Do you want to create it?")))
-            {
-                AnsiConsole.MarkupLine("[red]Aborting.[/]");
-                return;
-            }
+            AnsiConsole.MarkupLine("[red]Aborting.[/]");
+            return;
+        }
 
-            AnsiConsole.MarkupLine($"[green]Creating[/] {Path.GetFileName(buildFile)} [green]file in the current directory...[/]");
+        AnsiConsole.MarkupLine($"[green]Creating[/] {Path.GetFileName(buildFile)} [green]file in the current directory...[/]");
 
-            // We need to find our if the script would need to enter the correct folder first, we'll assume that the folder is the same name as our current folder
-            var folderName = Path.GetFileName(path);
-            // NOTE: This needs to use LF as line endings, not CRLF.
-            var contents = $$"""
+        // We need to find our if the script would need to enter the correct folder first, we'll assume that the folder is the same name as our current folder
+        var folderName = Path.GetFileName(path);
+        // NOTE: This needs to use LF as line endings, not CRLF.
+        var contents = $$"""
                              #!/usr/bin/env bash
                              set -euo pipefail
 
@@ -175,85 +175,85 @@ if (configCommands is not null && command != "help")
                              # run any additional build steps
                              npm run build
                              """;
-            File.WriteAllText(buildFile, contents.Replace("\r\n", "\n"));
-        }
-        else
-        {
-            // We want to make sure that no CRLF line endings are in the file, so we need to convert it to LF line endings.
-            var content = File.ReadAllText(buildFile);
-            if (content.Contains("\r\n"))
-            {
-                AnsiConsole.MarkupLine($"[yellow]Converting[/] {Path.GetFileName(buildFile)} [yellow]to LF line endings...[/]");
-                content = content.Replace("\r\n", "\n");
-                File.WriteAllText(buildFile, content);
-            }
-        }
-
-        // NOTE: We should make sure that the .gitattributes is set up correctly to enforce LF line endings for bash files.
-        var attributesFile = Path.Combine(path, ".gitattributes");
-        if (!File.Exists(attributesFile))
-        {
-            AnsiConsole.MarkupLine($"[red]No {Path.GetFileName(attributesFile)} file found in the current directory.[/]");
-            if (!AnsiConsole.Prompt(new ConfirmationPrompt("Do you want to create it?")))
-            {
-                AnsiConsole.MarkupLine("[yellow]Ignoring.[/]");
-            }
-            else
-            {
-                AnsiConsole.MarkupLine($"[green]Creating[/] {Path.GetFileName(attributesFile)} [green]file in the current directory...[/]");
-                // NOTE: This needs to use LF as line endings, not CRLF.
-                File.WriteAllText(attributesFile, "# Set default behavior to automatically normalize line endings.\n* text=auto\n# Explicitly declare text files we want to always be normalized and converted to native line endings on checkout.\n*.sh text eol=lf");
-            }
-        }
-        else
-        {
-            // Check if the file contains the line for bash files
-            var content = File.ReadAllText(attributesFile);
-            if (!content.Contains("*.sh text eol=lf")) // TODO: Might be as comment
-            {
-                // TODO: Make sure that the *.sh isn't already in the file.
-                AnsiConsole.MarkupLine($"[yellow]Adding LF line endings for bash files to {Path.GetFileName(attributesFile)}...[/]");
-                content += "\n*.sh text eol=lf";
-                File.WriteAllText(attributesFile, content);
-            }
-        }
-
-        var dockerCommand = $"docker run --rm -v \"{path}:/src\" -w /src ghcr.io/stevehansen/vidyano-frontend-builder:latest";
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            Process.Start("cmd.exe", $"/c {dockerCommand}").WaitForExit();
-        else
-            Process.Start("bash", $"-c \"{dockerCommand}\"").WaitForExit();
-        return;
+        File.WriteAllText(buildFile, contents.Replace("\r\n", "\n"));
     }
-
-    if (command is "clean")
+    else
     {
-        AnsiConsole.MarkupLine("[green]Cleaning current directory...[/]");
-
-        // Clean the current directory by removing bin, obj, tmp-build, bin-windows, bin-linux, obj-windows and obj-linux folders
-        var foldersToDelete = new[] { "bin", "obj", "tmp-build", "bin-windows", "bin-linux", "obj-windows", "obj-linux" };
-        var allDirectories = Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories)
-            .Where(dir => !dir.Contains("node_modules", StringComparison.OrdinalIgnoreCase))
-            .Where(dir => foldersToDelete.Contains(Path.GetFileName(dir), StringComparer.OrdinalIgnoreCase));
-
-        foreach (var folderPath in allDirectories)
+        // We want to make sure that no CRLF line endings are in the file, so we need to convert it to LF line endings.
+        var content = File.ReadAllText(buildFile);
+        if (content.Contains("\r\n"))
         {
-            try
+            AnsiConsole.MarkupLine($"[yellow]Converting[/] {Path.GetFileName(buildFile)} [yellow]to LF line endings...[/]");
+            content = content.Replace("\r\n", "\n");
+            File.WriteAllText(buildFile, content);
+        }
+    }
+
+    // NOTE: We should make sure that the .gitattributes is set up correctly to enforce LF line endings for bash files.
+    var attributesFile = Path.Combine(path, ".gitattributes");
+    if (!File.Exists(attributesFile))
+    {
+        AnsiConsole.MarkupLine($"[red]No {Path.GetFileName(attributesFile)} file found in the current directory.[/]");
+        if (!AnsiConsole.Prompt(new ConfirmationPrompt("Do you want to create it?")))
+        {
+            AnsiConsole.MarkupLine("[yellow]Ignoring.[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"[green]Creating[/] {Path.GetFileName(attributesFile)} [green]file in the current directory...[/]");
+            // NOTE: This needs to use LF as line endings, not CRLF.
+            File.WriteAllText(attributesFile, "# Set default behavior to automatically normalize line endings.\n* text=auto\n# Explicitly declare text files we want to always be normalized and converted to native line endings on checkout.\n*.sh text eol=lf");
+        }
+    }
+    else
+    {
+        // Check if the file contains the line for bash files
+        var content = File.ReadAllText(attributesFile);
+        if (!content.Contains("*.sh text eol=lf")) // TODO: Might be as comment
+        {
+            // TODO: Make sure that the *.sh isn't already in the file.
+            AnsiConsole.MarkupLine($"[yellow]Adding LF line endings for bash files to {Path.GetFileName(attributesFile)}...[/]");
+            content += "\n*.sh text eol=lf";
+            File.WriteAllText(attributesFile, content);
+        }
+    }
+
+    var dockerCommand = $"docker run --rm -v \"{path}:/src\" -w /src ghcr.io/stevehansen/vidyano-frontend-builder:latest";
+
+    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        Process.Start("cmd.exe", $"/c {dockerCommand}").WaitForExit();
+    else
+        Process.Start("bash", $"-c \"{dockerCommand}\"").WaitForExit();
+    return;
+}
+
+if (command is "clean")
+{
+    AnsiConsole.MarkupLine("[green]Cleaning current directory...[/]");
+
+    // Clean the current directory by removing bin, obj, tmp-build, bin-windows, bin-linux, obj-windows and obj-linux folders
+    var foldersToDelete = new[] { "bin", "obj", "tmp-build", "bin-windows", "bin-linux", "obj-windows", "obj-linux" };
+    var allDirectories = Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories)
+        .Where(dir => !dir.Contains("node_modules", StringComparison.OrdinalIgnoreCase))
+        .Where(dir => foldersToDelete.Contains(Path.GetFileName(dir), StringComparer.OrdinalIgnoreCase));
+
+    foreach (var folderPath in allDirectories)
+    {
+        try
+        {
+            if (Directory.Exists(folderPath))
             {
-                if (Directory.Exists(folderPath))
-                {
-                    AnsiConsole.MarkupLine($"[red]Deleting[/] {folderPath} [red]folder...[/]");
-                    Directory.Delete(folderPath, recursive: true);
-                }
-            }
-            catch (Exception ex)
-            {
-                AnsiConsole.WriteException(ex, ExceptionFormats.ShowLinks);
+                AnsiConsole.MarkupLine($"[red]Deleting[/] {folderPath} [red]folder...[/]");
+                Directory.Delete(folderPath, recursive: true);
             }
         }
-        return;
+        catch (Exception ex)
+        {
+            AnsiConsole.WriteException(ex, ExceptionFormats.ShowLinks);
+        }
     }
+    return;
+}
 
 // Check if we have a .sln or .slnx file in the current directory.
 var slnFile = Directory.GetFiles(path, "*.sln*")
