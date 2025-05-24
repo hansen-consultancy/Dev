@@ -82,7 +82,15 @@ Runs the Vidyano frontend builder in the current directory using Docker.
 dev frontend
 ```
 
-This command uses the `ghcr.io/stevehansen/vidyano-frontend-builder` Docker image to build your frontend.
+This command uses the [`ghcr.io/stevehansen/vidyano-frontend-builder`](https://github.com/stevehansen/vidyano-frontend-builder) Docker image to build your frontend.
+
+### Clean working directory
+
+Removes build output from the current directory.
+
+```bash
+dev clean
+```
 
 ### Help
 
@@ -107,6 +115,7 @@ The following aliases are available for commonly used commands:
 | Alias | Command |
 |-|-|
 | b | build |
+|   | clean |
 | h | help |
 | f | frontend |
 | v | bump |
