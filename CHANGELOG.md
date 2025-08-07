@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2025-08-07
+
 ### Added
 - Command combination support using '+' operator (e.g., `dev b+f` to build then run frontend)
 - 'c' alias for clean command
@@ -14,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 - CLAUDE.md project instructions
+- CHANGELOG.md and update-changelog command
 
 ## [1.8.0] - 2025-05-24
 
@@ -87,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated package dependencies
 
+[1.9.0]: https://github.com/stevehansen/HC.Dev/compare/1.8.0...1.9.0
 [1.8.0]: https://github.com/stevehansen/HC.Dev/compare/1.7.1...1.8.0
 [1.7.1]: https://github.com/stevehansen/HC.Dev/compare/1.7.0...1.7.1
 [1.7.0]: https://github.com/stevehansen/HC.Dev/compare/1.6.0...1.7.0
