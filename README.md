@@ -115,7 +115,7 @@ The following aliases are available for commonly used commands:
 | Alias | Command |
 |-|-|
 | b | build |
-|   | clean |
+| c | clean |
 | h | help |
 | f | frontend |
 | v | bump |

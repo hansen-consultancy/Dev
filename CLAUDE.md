@@ -46,6 +46,7 @@ This is a .NET 8.0 command-line tool (`dev`) that simplifies common development 
 
 ### Command Aliases
 - `b` → `build`
+- `c` → `clean`
 - `h` or `?` → `help`
 - `f` → `frontend`
 - `v` → `bump`

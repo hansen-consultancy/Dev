@@ -49,6 +49,7 @@ command = command switch
     "f" => "frontend",
     "v" => "bump",
     "vc" => "bump-commit",
+    "c" => "clean",
     _ => command,
 };
 
@@ -88,7 +89,7 @@ if (command is "help")
         table.AddRow("bump-commit (vc) [major|minor|patch|revision]".EscapeMarkup(), "Bumps the version and commits/tag the change in the current solution or project. Defaults to minor.");
         table.AddRow("build (b)", "Builds the current solution or project in Release mode.");
         table.AddRow("frontend (f)", "Runs the Vidyano frontend builder in the current directory.");
-        table.AddRow("clean", "Clean the current folder by removing [yellow]bin[/], [yellow]obj[/], [yellow]tmp-build[/], [yellow]bin-windows[/], [yellow]bin-linux[/], [yellow]obj-windows[/], [yellow]obj-linux[/] folders. Use this command if you experience build issues.");
+        table.AddRow("clean (c)", "Clean the current folder by removing [yellow]bin[/], [yellow]obj[/], [yellow]tmp-build[/], [yellow]bin-windows[/], [yellow]bin-linux[/], [yellow]obj-windows[/], [yellow]obj-linux[/] folders. Use this command if you experience build issues.");
     }
 
     // Help is always available
