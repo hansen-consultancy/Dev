@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Command combination support using '+' operator (e.g., `dev b+f` to build then run frontend)
 - 'c' alias for clean command
 - src/ folder checking when no solution is found in current directory (#1) (#9)
 

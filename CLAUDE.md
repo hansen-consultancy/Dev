@@ -52,6 +52,9 @@ This is a .NET 8.0 command-line tool (`dev`) that simplifies common development 
 - `v` → `bump`
 - `vc` → `bump-commit`
 
+### Command Combinations
+Commands can be combined using the `+` operator to execute them sequentially (e.g., `dev b+f` to build then run frontend). Execution stops if any command fails.
+
 ### External Dependencies
 - **Microsoft.VisualStudio.SolutionPersistence**: For parsing solution files
 - **Spectre.Console**: For rich terminal UI

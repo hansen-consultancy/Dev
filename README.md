@@ -121,6 +121,23 @@ The following aliases are available for commonly used commands:
 | v | bump |
 | vc | bump-commit |
 
+## Combining Commands
+
+You can combine multiple commands using the `+` operator to execute them sequentially:
+
+```bash
+# Build then run frontend
+dev b+f
+
+# Clean, build, then run frontend
+dev c+b+f
+
+# Using full command names
+dev clean+build+frontend
+```
+
+When combining commands, execution stops if any command fails.
+
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for details.
