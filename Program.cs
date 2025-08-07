@@ -265,6 +265,20 @@ if (command is "clean")
 
 // Check if we have a .sln or .slnx file in the current directory.
 var slnFile = FindSolutionFile(path);
+var csprojFile = FindProjectFile(path);
+
+// If not found in current directory, check src/ folder
+if (slnFile == null && csprojFile == null)
+{
+    var srcPath = Path.Combine(path, "src");
+    if (Directory.Exists(srcPath))
+    {
+        slnFile = FindSolutionFile(srcPath);
+        csprojFile = FindProjectFile(srcPath);
+    }
+}
+
+// Process solution file if found
 if (slnFile != null)
 {
     if (command is "bump")
@@ -330,8 +344,7 @@ if (slnFile != null)
 
 // TODO: Check if we have a .devcontainer folder in the current directory. And if so, open it in Visual Studio Code as a dev container.
 
-// Check if we have a .csproj file in the current directory. And if so, open it in Visual Studio Code.
-var csprojFile = FindProjectFile(path);
+// Process project file if found (and no solution was found)
 if (csprojFile != null)
 {
     if (command is "bump")
@@ -367,113 +380,6 @@ if (csprojFile != null)
     AnsiConsole.MarkupLine($"[green]Opening[/] {csprojFile} [green]in Visual Studio Code...[/]");
     Process.Start("code", csprojFile);
     return;
-}
-
-// If no solution or project found in current directory, check src/ folder
-var srcPath = Path.Combine(path, "src");
-if (Directory.Exists(srcPath))
-{
-    var srcSlnFile = FindSolutionFile(srcPath);
-    if (srcSlnFile != null)
-    {
-        if (command is "bump")
-        {
-            var subCommand = args.Length > 1 ? args[1] : "minor";
-
-            // Will bump all versions inside all csproj files linked in the solution
-            foreach (var projectPath in GetProjectPaths(srcSlnFile))
-                BumpProjectVersion(projectPath, subCommand);
-
-            return;
-        }
-
-        if (command is "bump-commit")
-        {
-            var subCommand = args.Length > 1 ? args[1] : "minor";
-
-            var newVersions = new HashSet<string>();
-            foreach (var projectPath in GetProjectPaths(srcSlnFile))
-            {
-                var newVersion = BumpProjectVersion(projectPath, subCommand);
-
-                if (newVersion != null)
-                {
-                    newVersions.Add(newVersion);
-                    Process.Start("git", $"add \"{projectPath}\"").WaitForExit();
-                }
-            }
-
-            switch (newVersions.Count)
-            {
-                case 0:
-                    AnsiConsole.MarkupLine("[yellow]No versions found to bump.[/]");
-                    break;
-
-                case > 1:
-                    AnsiConsole.MarkupLine("[red]Multiple versions found to bump. Please commit them separately.[/]");
-                    break;
-
-                default:
-                    {
-                        var newVersion = newVersions.First();
-                        AnsiConsole.MarkupLine($"[green]Committing and tagging version {newVersion}...[/]");
-                        Process.Start("git", $"commit -m \"build: {newVersion}\"").WaitForExit();
-                        Process.Start("git", $"tag {newVersion}").WaitForExit();
-                        break;
-                    }
-            }
-
-            return;
-        }
-
-        if (command is "build")
-        {
-            BuildSolutionOrProject(srcSlnFile);
-            return;
-        }
-
-        AnsiConsole.MarkupLine($"[green]Opening[/] {srcSlnFile} [green]in default IDE...[/]");
-        Process.Start(new ProcessStartInfo(srcSlnFile) { UseShellExecute = true });
-        return;
-    }
-
-    var srcCsprojFile = FindProjectFile(srcPath);
-    if (srcCsprojFile != null)
-    {
-        if (command is "bump")
-        {
-            // Will bump the version inside the current csproj file
-            BumpProjectVersion(srcCsprojFile, args.Length > 1 ? args[1] : "minor");
-            return;
-        }
-
-        if (command is "bump-commit")
-        {
-            var subCommand = args.Length > 1 ? args[1] : "minor";
-
-            var newVersion = BumpProjectVersion(srcCsprojFile, subCommand);
-
-            if (newVersion != null)
-            {
-                AnsiConsole.MarkupLine($"[green]Committing and tagging version {newVersion}...[/]");
-                Process.Start("git", $"add \"{srcCsprojFile}\"").WaitForExit();
-                Process.Start("git", $"commit -m \"build: {newVersion}\"").WaitForExit();
-                Process.Start("git", $"tag {newVersion}").WaitForExit();
-            }
-
-            return;
-        }
-
-        if (command is "build")
-        {
-            BuildSolutionOrProject(srcCsprojFile);
-            return;
-        }
-
-        AnsiConsole.MarkupLine($"[green]Opening[/] {srcCsprojFile} [green]in Visual Studio Code...[/]");
-        Process.Start("code", srcCsprojFile);
-        return;
-    }
 }
 
 // Nothing to do.
