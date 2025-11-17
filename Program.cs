@@ -479,6 +479,46 @@ static void BuildSolutionOrProject(string path)
     Process.Start("dotnet", $"build \"{path}\" -c Release").WaitForExit();
 }
 
+static bool IsInGitSubmodule(string filePath)
+{
+    try
+    {
+        // Get the directory containing the file
+        var directory = Path.GetDirectoryName(filePath);
+        if (string.IsNullOrEmpty(directory))
+            return false;
+
+        // Start from the file's directory and walk up to find .git
+        var currentDir = new DirectoryInfo(directory);
+        while (currentDir != null)
+        {
+            var gitPath = Path.Combine(currentDir.FullName, ".git");
+
+            // Check if .git exists
+            if (File.Exists(gitPath))
+            {
+                // If .git is a file (not a directory), it's a submodule
+                // Submodules have a .git file that points to the actual git directory
+                return true;
+            }
+            else if (Directory.Exists(gitPath))
+            {
+                // Found the main repository's .git directory
+                return false;
+            }
+
+            currentDir = currentDir.Parent;
+        }
+
+        return false;
+    }
+    catch
+    {
+        // If we can't determine, assume it's not a submodule to be safe
+        return false;
+    }
+}
+
 static IReadOnlyCollection<string> GetProjectPaths(string slnFile)
 {
     // Get the project paths from the solution file
@@ -510,6 +550,13 @@ static IReadOnlyCollection<string> GetProjectPaths(string slnFile)
         // Convert to absolute path if needed
         if (!Path.IsPathRooted(projectPath))
             projectPath = Path.Combine(Path.GetDirectoryName(slnFile) ?? "", projectPath);
+
+        // Skip projects inside git submodules
+        if (IsInGitSubmodule(projectPath))
+        {
+            AnsiConsole.MarkupLine($"[yellow]Skipping[/] {Path.GetFileNameWithoutExtension(projectPath)} [yellow](inside git submodule)[/]");
+            continue;
+        }
 
         projectPaths.Add(projectPath);
     }
