@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2025-11-17
+
+### Fixed
+- Skip git submodules when bumping versions to avoid modifying submodule contents
+
 ## [1.9.0] - 2025-08-07
 
 ### Added
@@ -90,12 +95,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated package dependencies
 
-[1.9.0]: https://github.com/stevehansen/HC.Dev/compare/1.8.0...1.9.0
-[1.8.0]: https://github.com/stevehansen/HC.Dev/compare/1.7.1...1.8.0
-[1.7.1]: https://github.com/stevehansen/HC.Dev/compare/1.7.0...1.7.1
-[1.7.0]: https://github.com/stevehansen/HC.Dev/compare/1.6.0...1.7.0
-[1.6.0]: https://github.com/stevehansen/HC.Dev/compare/1.5.0...1.6.0
-[1.5.0]: https://github.com/stevehansen/HC.Dev/compare/1.4.1...1.5.0
-[1.4.1]: https://github.com/stevehansen/HC.Dev/compare/1.4.0...1.4.1
-[1.4.0]: https://github.com/stevehansen/HC.Dev/compare/1.3.0...1.4.0
-[1.3.0]: https://github.com/stevehansen/HC.Dev/releases/tag/1.3.0
+[1.10.0]: https://github.com/hansen-consultancy/Dev/compare/1.9.0...1.10.0
+[1.9.0]: https://github.com/hansen-consultancy/Dev/compare/1.8.0...1.9.0
+[1.8.0]: https://github.com/hansen-consultancy/Dev/compare/1.7.1...1.8.0
+[1.7.1]: https://github.com/hansen-consultancy/Dev/compare/1.7.0...1.7.1
+[1.7.0]: https://github.com/hansen-consultancy/Dev/compare/1.6.0...1.7.0
+[1.6.0]: https://github.com/hansen-consultancy/Dev/compare/1.5.0...1.6.0
+[1.5.0]: https://github.com/hansen-consultancy/Dev/compare/1.4.1...1.5.0
+[1.4.1]: https://github.com/hansen-consultancy/Dev/compare/1.4.0...1.4.1
+[1.4.0]: https://github.com/hansen-consultancy/Dev/compare/1.3.0...1.4.0
+[1.3.0]: https://github.com/hansen-consultancy/Dev/releases/tag/1.3.0
