@@ -32,6 +32,34 @@ if (File.Exists(configFile))
     }
 }
 
+var devConfigFile = Path.Combine(path, "dev.json");
+if (!File.Exists(devConfigFile))
+{
+    // Check parent directory
+    var parentPath = Directory.GetParent(path)?.FullName;
+    if (parentPath != null)
+    {
+        var parentConfigFile = Path.Combine(parentPath, "dev.json");
+        if (File.Exists(parentConfigFile))
+            devConfigFile = parentConfigFile;
+    }
+}
+
+DevConfig? devConfig = null;
+if (File.Exists(devConfigFile))
+{
+    try
+    {
+        devConfig = JsonSerializer.Deserialize<DevConfig>(File.ReadAllText(devConfigFile), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+    }
+    catch (Exception ex)
+    {
+        AnsiConsole.MarkupLine("[red]Error reading dev.json:[/]");
+        AnsiConsole.WriteException(ex);
+        return;
+    }
+}
+
 string commandInput;
 if (args.Length > 0)
     commandInput = args[0];
@@ -71,7 +99,7 @@ for (int i = 0; i < commands.Length; i++)
     var commandArgs = i == 0 ? args.Skip(1).ToArray() : Array.Empty<string>();
 
     // Execute the command
-    if (!ExecuteCommand(command, commandArgs, path, configCommands, defaultConfig))
+    if (!ExecuteCommand(command, commandArgs, path, configCommands, defaultConfig, devConfig))
     {
         // If a command fails, stop executing the rest
         if (commands.Length > 1)
@@ -82,7 +110,7 @@ for (int i = 0; i < commands.Length; i++)
     }
 }
 
-static bool ExecuteCommand(string command, string[] commandArgs, string path, List<ConfigCommand>? configCommands, ConfigCommand? defaultConfig)
+static bool ExecuteCommand(string command, string[] commandArgs, string path, List<ConfigCommand>? configCommands, ConfigCommand? defaultConfig, DevConfig? devConfig)
 {
     if (command is "help")
     {
@@ -322,7 +350,7 @@ static bool ExecuteCommand(string command, string[] commandArgs, string path, Li
             var subCommand = commandArgs.Length > 0 ? commandArgs[0] : "minor";
 
             // Will bump all versions inside all csproj files linked in the solution
-            foreach (var projectPath in GetProjectPaths(slnFile))
+            foreach (var projectPath in GetProjectPaths(slnFile, devConfig?.IgnoreProjects))
                 BumpProjectVersion(projectPath, subCommand);
 
             return true;
@@ -333,7 +361,7 @@ static bool ExecuteCommand(string command, string[] commandArgs, string path, Li
             var subCommand = commandArgs.Length > 0 ? commandArgs[0] : "minor";
 
             var newVersions = new HashSet<string>();
-            foreach (var projectPath in GetProjectPaths(slnFile))
+            foreach (var projectPath in GetProjectPaths(slnFile, devConfig?.IgnoreProjects))
             {
                 var newVersion = BumpProjectVersion(projectPath, subCommand);
 
@@ -519,7 +547,7 @@ static bool IsInGitSubmodule(string filePath)
     }
 }
 
-static IReadOnlyCollection<string> GetProjectPaths(string slnFile)
+static IReadOnlyCollection<string> GetProjectPaths(string slnFile, IReadOnlyCollection<string>? ignoreProjects = null)
 {
     // Get the project paths from the solution file
     var serializer = SolutionSerializers.GetSerializerByMoniker(slnFile);
@@ -555,6 +583,14 @@ static IReadOnlyCollection<string> GetProjectPaths(string slnFile)
         if (IsInGitSubmodule(projectPath))
         {
             AnsiConsole.MarkupLine($"[yellow]Skipping[/] {Path.GetFileNameWithoutExtension(projectPath)} [yellow](inside git submodule)[/]");
+            continue;
+        }
+
+        // Skip ignored projects
+        var projectName = Path.GetFileNameWithoutExtension(projectPath);
+        if (ignoreProjects?.Any(p => string.Equals(p, projectName, StringComparison.OrdinalIgnoreCase)) == true)
+        {
+            AnsiConsole.MarkupLine($"[yellow]Skipping[/] {projectName} [yellow](configured in dev.json)[/]");
             continue;
         }
 
@@ -599,4 +635,9 @@ internal sealed class ConfigCommand
     public string? BuiltIn { get; set; }
     public string? Windows { get; set; }
     public string? NonWindows { get; set; }
+}
+
+internal sealed class DevConfig
+{
+    public List<string>? IgnoreProjects { get; set; }
 }
