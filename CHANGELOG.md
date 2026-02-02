@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-02-02
+
+### Added
+- `dev.json` configuration file support to ignore specific projects during version bump
+- GitHub Actions workflow for NuGet trusted publishing via OIDC
+
 ## [1.10.0] - 2025-11-17
 
 ### Fixed
@@ -95,6 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated package dependencies
 
+[1.11.0]: https://github.com/hansen-consultancy/Dev/compare/1.10.0...1.11.0
 [1.10.0]: https://github.com/hansen-consultancy/Dev/compare/1.9.0...1.10.0
 [1.9.0]: https://github.com/hansen-consultancy/Dev/compare/1.8.0...1.9.0
 [1.8.0]: https://github.com/hansen-consultancy/Dev/compare/1.7.1...1.8.0
