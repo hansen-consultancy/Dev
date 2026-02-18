@@ -1,13 +1,14 @@
 // 'Dev' tool can be used to do some development tasks based on the current directory.
 
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Text.RegularExpressions;
-using System.Text.Json;
 using Dev;
 using Microsoft.VisualStudio.SolutionPersistence.Model;
 using Microsoft.VisualStudio.SolutionPersistence.Serializer;
 using Spectre.Console;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 var informationalVersion = ThisAssembly.Info.InformationalVersion.Split('+', 2);
 AnsiConsole.MarkupLine($"[bold green]{ThisAssembly.Info.Product}[/] v[green]{informationalVersion[0]}[/]+{informationalVersion[1][..7]}");
@@ -407,6 +408,26 @@ static bool ExecuteCommand(string command, string[] commandArgs, string path, Li
             Process.Start(new ProcessStartInfo(slnFile) { UseShellExecute = true });
             return true;
         }
+
+        if (command is "pack")
+        {
+            AnsiConsole.MarkupLine($"[green]Packing NuGet packages for[/] {slnFile} [green]...[/]");
+            var nugetConfigPath = GetRootNugetConfigPath();
+            var nugetConfig = XDocument.Load(nugetConfigPath);
+            var sourceName = commandArgs[0];
+            var nugetSourcePath = nugetConfig.Element("configuration")?.Element("packageSources")?.Elements("add")?
+                .Select(x => new
+                {
+                    Name = x.Attribute("key")?.Value,
+                    Source = x.Attribute("value")?.Value
+                })?
+                .FirstOrDefault(x => x.Name?.Equals(sourceName, StringComparison.InvariantCultureIgnoreCase) ?? false)?
+                .Source;
+
+            Process.Start("dotnet", $"pack \"{slnFile}\" -c Release -o \"{nugetSourcePath}\"").WaitForExit();
+            AnsiConsole.MarkupLine($"[green]NuGet packages for[/] {slnFile} published to {nugetSourcePath}[green][/]");
+            return true;
+        }
     }
 
     // TODO: Check if we have a .devcontainer folder in the current directory. And if so, open it in Visual Studio Code as a dev container.
@@ -619,6 +640,18 @@ static string? FindSolutionFile(string searchPath)
 static string? FindProjectFile(string searchPath)
 {
     return Directory.GetFiles(searchPath, "*.csproj").FirstOrDefault();
+}
+
+static string GetRootNugetConfigPath()
+{
+    var userConfig = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NuGet", "nuget.config");
+    var linuxMacConfig = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "NuGet", "NuGet.Config");
+
+    var configPath = File.Exists(userConfig) ? userConfig
+        : File.Exists(linuxMacConfig) ? linuxMacConfig
+        : throw new FileNotFoundException("Could not find user NuGet configuration file.");
+
+    return configPath;
 }
 
 partial class Program
