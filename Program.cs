@@ -2,6 +2,7 @@
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using Dev;
@@ -30,6 +31,12 @@ if (File.Exists(configFile))
         AnsiConsole.WriteException(ex);
         return;
     }
+}
+
+if (configCommands is not null)
+{
+    if (!VerifyCommandsTrust(configFile, configCommands))
+        return;
 }
 
 var devConfigFile = Path.Combine(path, "dev.json");
@@ -621,6 +628,69 @@ static string? FindProjectFile(string searchPath)
     return Directory.GetFiles(searchPath, "*.csproj").FirstOrDefault();
 }
 
+static bool VerifyCommandsTrust(string configFilePath, List<ConfigCommand> commands)
+{
+    var content = File.ReadAllBytes(configFilePath);
+    var hash = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
+    var fullPath = Path.GetFullPath(configFilePath);
+
+    var trustDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "hc-dev");
+    var trustFile = Path.Combine(trustDir, "trust.json");
+
+    TrustStore store;
+    try
+    {
+        if (File.Exists(trustFile))
+            store = JsonSerializer.Deserialize<TrustStore>(File.ReadAllText(trustFile)) ?? new TrustStore();
+        else
+            store = new TrustStore();
+    }
+    catch
+    {
+        store = new TrustStore();
+    }
+
+    if (store.TrustedConfigs.TryGetValue(fullPath, out var trustedHash) && trustedHash == hash)
+        return true;
+
+    var isModified = store.TrustedConfigs.ContainsKey(fullPath);
+
+    AnsiConsole.MarkupLine(isModified
+        ? "[yellow]Warning:[/] The commands.json in this directory has been modified since you last approved it."
+        : "[yellow]Warning:[/] A custom commands.json was found in this directory.");
+
+    DisplayCommandSummary(commands);
+
+    if (!AnsiConsole.Prompt(new ConfirmationPrompt("Do you want to trust this configuration?") { DefaultValue = false }))
+        return false;
+
+    store.TrustedConfigs[fullPath] = hash;
+    Directory.CreateDirectory(trustDir);
+    File.WriteAllText(trustFile, JsonSerializer.Serialize(store, new JsonSerializerOptions { WriteIndented = true }));
+
+    return true;
+}
+
+static void DisplayCommandSummary(List<ConfigCommand> commands)
+{
+    AnsiConsole.MarkupLine("\nThis configuration replaces the default commands with:");
+    foreach (var cmd in commands)
+    {
+        var label = $"[cyan]{cmd.Name}[/]";
+        if (cmd.Default)
+            label += " (default)";
+
+        string detail;
+        if (!string.IsNullOrEmpty(cmd.BuiltIn))
+            detail = $"(built-in) {cmd.BuiltIn}";
+        else
+            detail = (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? cmd.Windows : cmd.NonWindows) ?? string.Empty;
+
+        AnsiConsole.MarkupLine($"  - {label}: {detail.EscapeMarkup()}");
+    }
+    AnsiConsole.WriteLine();
+}
+
 partial class Program
 {
     [GeneratedRegex("<Version>(?<version>.*)</Version>")]
@@ -640,4 +710,9 @@ internal sealed class ConfigCommand
 internal sealed class DevConfig
 {
     public List<string>? IgnoreProjects { get; set; }
+}
+
+internal sealed class TrustStore
+{
+    public Dictionary<string, string> TrustedConfigs { get; set; } = new();
 }

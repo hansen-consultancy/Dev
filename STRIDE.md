@@ -1,7 +1,7 @@
 # STRIDE Threat Model — HC.Dev (`dev` CLI tool)
 
-> **Version:** 1.11.0
-> **Date:** 2026-02-20
+> **Version:** 1.12.0
+> **Date:** 2026-02-21
 > **Scope:** The `dev` .NET global tool, its configuration files, and its interactions with the local system.
 
 ## Overview
@@ -22,6 +22,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 - Version metadata in project files
 - Git repository state (commits, tags)
 - Configuration files (`commands.json`, `dev.json`)
+- Trust store (`%APPDATA%/hc-dev/trust.json`) — SHA-256 hashes of approved `commands.json` files keyed by full path
 - Build scripts (`build.cmd`, `build.sh`, `build-frontend.sh`)
 - Docker volume-mounted source directory
 
@@ -31,7 +32,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 
 | # | Threat | Affected Component | Severity | Mitigation |
 |---|--------|--------------------|----------|------------|
-| S1 | **Malicious `commands.json` in cloned repo** — An attacker commits a crafted `commands.json` to a repository. When a developer runs `dev`, arbitrary commands execute under their identity. | `Program.cs:186-197` — Custom command execution via `cmd.exe /c` or `bash -c` | **High** | The tool trusts configuration files in the working directory by design. Users should review `commands.json` in unfamiliar repositories before running `dev`. Consider displaying a warning on first use or when the file changes. |
+| S1 | **Malicious `commands.json` in cloned repo** — An attacker commits a crafted `commands.json` to a repository. When a developer runs `dev`, arbitrary commands execute under their identity. | `Program.cs` — Custom command execution via `cmd.exe /c` or `bash -c` | **High** → **Mitigated** | **Mitigated in v1.12.0:** A hash-based trust system (`VerifyCommandsTrust`) now blocks execution of any `commands.json` that has not been explicitly approved by the user. On first encounter or when the file changes, the tool displays a warning, shows a summary of all commands (including shell commands that would run), and requires explicit confirmation (defaulting to "no"). Approved configs are recorded by full path and SHA-256 hash in `%APPDATA%/hc-dev/trust.json`. Residual risk: a user may approve a malicious config without carefully reading the summary. |
 | S2 | **Malicious NuGet package substitution** — An attacker publishes a package with a similar name (typosquatting `HC.Dev`) to execute malicious code when installed. | NuGet distribution | **Medium** | The package uses a scoped ID (`HC.Dev`) with a specific `ToolCommandName`. Users should verify the package source. NuGet trusted publishing (added in recent CI) helps mitigate this. |
 | S3 | **Docker image spoofing** — If the Docker registry or user's Docker config is compromised, a malicious image could replace `ghcr.io/stevehansen/vidyano-frontend-builder:latest`. | `Program.cs:293` — Docker run command | **Medium** | Consider pinning the Docker image to a specific digest rather than `:latest`. Ensure the GitHub Container Registry package has appropriate access controls. |
 
@@ -41,7 +42,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 
 | # | Threat | Affected Component | Severity | Mitigation |
 |---|--------|--------------------|----------|------------|
-| T1 | **Command injection via `commands.json`** — Custom commands from `commands.json` are passed directly to `cmd.exe /c` or `bash -c` without sanitization. A malicious config can execute arbitrary shell commands. | `Program.cs:194-197` | **High** | This is by design (the tool is meant to run user-defined commands), but the implicit trust is dangerous in shared/cloned repositories. Variable placeholders (`{sln}`, `{project}`, `{dir}`) are also injected unsanitized into the shell command string. If a directory or file path contains shell metacharacters, this could lead to unintended command execution. |
+| T1 | **Command injection via `commands.json`** — Custom commands from `commands.json` are passed directly to `cmd.exe /c` or `bash -c` without sanitization. A malicious config can execute arbitrary shell commands. | `Program.cs` — Custom command execution | **High** → **Partially Mitigated** | **Partially mitigated in v1.12.0:** The trust system ensures the user must explicitly approve the `commands.json` content before any commands execute. The command summary shows the exact shell commands that will run, giving the user visibility. However, variable placeholders (`{sln}`, `{project}`, `{dir}`) are still injected unsanitized — if paths contain shell metacharacters, this could lead to unintended command execution. The trust check covers the config file itself, not the runtime-resolved commands. |
 | T2 | **Build script tampering** — The tool executes `build.cmd`/`build.sh` if found in the project directory, with no integrity check. | `Program.cs:497-503` — `BuildSolutionOrProject` | **Medium** | An attacker who can write to the project directory can replace build scripts. This is a standard risk for local development tools. |
 | T3 | **Version file tampering via regex** — The version regex `<Version>(?<version>.*)</Version>` uses a greedy match that could be exploited with crafted `.csproj` content to write unexpected values. | `Program.cs:626-627`, `BumpProjectVersion` | **Low** | The regex is simple and applied to XML content the developer controls. Risk is minimal in practice. |
 | T4 | **Parent directory `dev.json` traversal** — The tool checks the parent directory for `dev.json` if not found locally. A malicious `dev.json` placed in a shared parent directory could influence the tool's behavior (e.g., suppressing version bumps via `IgnoreProjects`). | `Program.cs:38-46` | **Low** | Only traverses one level up. The impact is limited to ignoring projects during version bumping. |
@@ -81,7 +82,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 
 | # | Threat | Affected Component | Severity | Mitigation |
 |---|--------|--------------------|----------|------------|
-| E1 | **Arbitrary command execution via `commands.json`** — Custom commands run with the full privileges of the invoking user. A malicious `commands.json` in a cloned repository could execute commands the user did not intend (e.g., `curl ... \| bash`, modifying system files, exfiltrating credentials). | `Program.cs:186-197` | **High** | This is the most significant risk. The tool blindly trusts `commands.json` in the working directory. Mitigations: (1) warn users when `commands.json` is present in a new/untrusted repo, (2) display the command before execution and prompt for confirmation, (3) consider a sandboxing mechanism or allowlist. |
+| E1 | **Arbitrary command execution via `commands.json`** — Custom commands run with the full privileges of the invoking user. A malicious `commands.json` in a cloned repository could execute commands the user did not intend (e.g., `curl ... \| bash`, modifying system files, exfiltrating credentials). | `Program.cs` — Custom command execution | **High** → **Mitigated** | **Mitigated in v1.12.0:** The tool no longer blindly trusts `commands.json`. All three recommended controls are now implemented: (1) a warning is shown when `commands.json` is new or modified, (2) a full command summary is displayed before execution, and (3) the user must explicitly confirm with a prompt that defaults to "no". The SHA-256 hash ensures any file modification triggers re-approval. Residual risk: once approved, commands run with full user privileges — no sandboxing is applied. |
 | E2 | **Shell metacharacter injection via path placeholders** — The `{sln}`, `{project}`, and `{dir}` placeholders in custom commands are replaced with file/directory paths and passed to `cmd.exe /c` or `bash -c`. If paths contain shell metacharacters (`;`, `&&`, `\|`, backticks, `$(...)`), this enables command injection. | `Program.cs:603-609` (ReplaceVariables), `Program.cs:194-197` | **Medium** | Paths are not shell-escaped before substitution. Consider properly quoting or escaping path values when constructing shell command strings, or use argument arrays with `ProcessStartInfo` to avoid shell interpretation entirely. |
 | E3 | **Build script execution without validation** — `build.cmd`/`build.sh` are executed if they exist in the project directory, with no path validation or user confirmation. | `Program.cs:497-503` | **Low** | Standard behavior for build tools. The user is expected to trust the contents of their working directory. |
 
@@ -91,7 +92,8 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 
 | Severity | Count | Key Threats |
 |----------|-------|-------------|
-| **High** | 3 | S1, T1, E1 — All related to untrusted `commands.json` execution |
+| **High → Mitigated** | 2 | S1, E1 — Untrusted `commands.json` execution (mitigated by trust system in v1.12.0) |
+| **High → Partially Mitigated** | 1 | T1 — Command injection via config (trust system + command summary, but placeholder injection remains) |
 | **Medium** | 4 | S2, S3, I1, E2 — Package spoofing, Docker image trust, path injection |
 | **Low** | 7 | T2, T3, T4, R1, R2, D1, D2, D3, E3 |
 | **Informational** | 1 | I3 |
@@ -99,7 +101,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 ## Recommended Mitigations (Priority Order)
 
 1. **Shell-escape placeholder values** in `ReplaceVariables` or switch to `ProcessStartInfo.ArgumentList` to avoid shell interpretation of paths containing metacharacters.
-2. **Warn on first use of `commands.json`** in a repository, or display the resolved command and prompt before executing custom commands for the first time.
+2. ~~**Warn on first use of `commands.json`**~~ — **Done in v1.12.0.** Hash-based trust system with confirmation prompt implemented in `VerifyCommandsTrust`.
 3. **Pin the Docker image** to a specific digest instead of `:latest` for the frontend builder.
 4. **Add optional timeouts** to `Process.WaitForExit()` calls, or document that Ctrl+C is the escape mechanism.
 5. **Consider a confirmation prompt** for `bump-commit` before creating git commits and tags.

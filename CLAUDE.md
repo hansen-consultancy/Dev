@@ -60,6 +60,22 @@ Commands can be combined using the `+` operator to execute them sequentially (e.
 - **Spectre.Console**: For rich terminal UI
 - **ThisAssembly.AssemblyInfo/Git**: For build-time assembly information
 
+## Security & STRIDE Threat Model
+
+This project maintains a STRIDE threat model in `STRIDE.md`. When making changes, **always review whether `STRIDE.md` needs updating**. This applies to:
+
+- **New features** that introduce trust boundaries, external process execution, file I/O, or user input handling
+- **Security-related changes** such as trust mechanisms, authentication, input validation, or sandboxing
+- **Changes to existing threats** — if a mitigation is implemented, update the affected threat's severity and mitigation column
+- **New configuration surfaces** — any new config files, environment variables, or CLI flags that could be abused
+- **Dependency changes** — new external processes, Docker images, NuGet packages, or network calls
+
+When updating `STRIDE.md`:
+1. Update the version and date at the top
+2. Add/modify threat entries in the appropriate STRIDE category
+3. Update the Risk Summary table
+4. Update the Recommended Mitigations section (strike through completed items)
+
 ## Important Implementation Notes
 
 - When bumping versions, the tool preserves the original version structure (major.minor.build.fix-suffix+buildvars).
