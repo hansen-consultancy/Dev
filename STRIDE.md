@@ -33,7 +33,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 | # | Threat | Affected Component | Severity | Mitigation |
 |---|--------|--------------------|----------|------------|
 | S1 | **Malicious `commands.json` in cloned repo** — An attacker commits a crafted `commands.json` to a repository. When a developer runs `dev`, arbitrary commands execute under their identity. | `Program.cs` — Custom command execution via `cmd.exe /c` or `bash -c` | **High** → **Mitigated** | **Mitigated in v1.12.0:** A hash-based trust system (`VerifyCommandsTrust`) now blocks execution of any `commands.json` that has not been explicitly approved by the user. On first encounter or when the file changes, the tool displays a warning, shows a summary of all commands (including shell commands that would run), and requires explicit confirmation (defaulting to "no"). Approved configs are recorded by full path and SHA-256 hash in `%APPDATA%/hc-dev/trust.json`. Residual risk: a user may approve a malicious config without carefully reading the summary. |
-| S2 | **Malicious NuGet package substitution** — An attacker publishes a package with a similar name (typosquatting `HC.Dev`) to execute malicious code when installed. | NuGet distribution | **Medium** | The package uses a scoped ID (`HC.Dev`) with a specific `ToolCommandName`. Users should verify the package source. NuGet trusted publishing (added in recent CI) helps mitigate this. |
+| S2 | **Malicious NuGet package substitution** — An attacker publishes a package with a similar name (typosquatting `HC.Dev`) to execute malicious code when installed. | NuGet distribution | **Medium** → **Mitigated** | **Mitigated in v1.11.0:** NuGet trusted publishing workflow added to CI, ensuring only verified builds from the official repository can publish the package. The package uses a scoped ID (`HC.Dev`) with a specific `ToolCommandName`. Residual risk: typosquatting with a different package ID remains possible but is outside the project's control. |
 | S3 | **Docker image spoofing** — If the Docker registry or user's Docker config is compromised, a malicious image could replace `ghcr.io/stevehansen/vidyano-frontend-builder:latest`. | `Program.cs:293` — Docker run command | **Medium** | Consider pinning the Docker image to a specific digest rather than `:latest`. Ensure the GitHub Container Registry package has appropriate access controls. |
 
 ---
@@ -94,7 +94,8 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 |----------|-------|-------------|
 | **High → Mitigated** | 2 | S1, E1 — Untrusted `commands.json` execution (mitigated by trust system in v1.12.0) |
 | **High → Partially Mitigated** | 1 | T1 — Command injection via config (trust system + command summary, but placeholder injection remains) |
-| **Medium** | 4 | S2, S3, I1, E2 — Package spoofing, Docker image trust, path injection |
+| **Medium → Mitigated** | 1 | S2 — NuGet package spoofing (mitigated by trusted publishing in v1.11.0) |
+| **Medium** | 3 | S3, I1, E2 — Docker image trust, source exposure, path injection |
 | **Low** | 7 | T2, T3, T4, R1, R2, D1, D2, D3, E3 |
 | **Informational** | 1 | I3 |
 
