@@ -1,7 +1,7 @@
 # STRIDE Threat Model — HC.Dev (`dev` CLI tool)
 
 > **Version:** 1.12.0
-> **Date:** 2026-02-21
+> **Date:** 2026-04-17
 > **Scope:** The `dev` .NET global tool, its configuration files, and its interactions with the local system.
 
 ## Overview
@@ -84,7 +84,8 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 |---|--------|--------------------|----------|------------|
 | E1 | **Arbitrary command execution via `commands.json`** — Custom commands run with the full privileges of the invoking user. A malicious `commands.json` in a cloned repository could execute commands the user did not intend (e.g., `curl ... \| bash`, modifying system files, exfiltrating credentials). | `Program.cs` — Custom command execution | **High** → **Mitigated** | **Mitigated in v1.12.0:** The tool no longer blindly trusts `commands.json`. All three recommended controls are now implemented: (1) a warning is shown when `commands.json` is new or modified, (2) a full command summary is displayed before execution, and (3) the user must explicitly confirm with a prompt that defaults to "no". The SHA-256 hash ensures any file modification triggers re-approval. Residual risk: once approved, commands run with full user privileges — no sandboxing is applied. |
 | E2 | **Shell metacharacter injection via path placeholders** — The `{sln}`, `{project}`, and `{dir}` placeholders in custom commands are replaced with file/directory paths and passed to `cmd.exe /c` or `bash -c`. If paths contain shell metacharacters (`;`, `&&`, `\|`, backticks, `$(...)`), this enables command injection. | `Program.cs:603-609` (ReplaceVariables), `Program.cs:194-197` | **Medium** | Paths are not shell-escaped before substitution. Consider properly quoting or escaping path values when constructing shell command strings, or use argument arrays with `ProcessStartInfo` to avoid shell interpretation entirely. |
-| E3 | **Build script execution without validation** — `build.cmd`/`build.sh` are executed if they exist in the project directory, with no path validation or user confirmation. | `Program.cs:497-503` | **Low** | Standard behavior for build tools. The user is expected to trust the contents of their working directory. |
+| E3 | **Build script execution without validation** — `build.cmd`/`build.sh` are executed if they exist in the project directory, with no path validation or user confirmation. | `Program.cs` — `BuildSolutionOrProject` | **Low** | Standard behavior for build tools. The user is expected to trust the contents of their working directory. |
+| E4 | **`--yes` auto-accepts `commands.json` trust prompt** — The `--yes` global flag (added alongside `--json` for automation) silently approves an untrusted or modified `commands.json` and writes it to the trust store. A script or agent that blindly passes `--yes` into a directory with a hostile `commands.json` executes arbitrary shell commands without any prompt. | `Program.cs` — `VerifyCommandsTrust` | **Medium** | The flag is opt-in and intended for non-interactive contexts (CI, agent-driven runs) where a prompt cannot be answered. Users and agents invoking `dev --yes` must have already vetted the working directory. Consider: (a) requiring `--yes` to additionally specify an expected hash, (b) refusing to auto-approve when the config is newly-introduced vs. only-modified, or (c) emitting a prominent stderr warning on every auto-approval. |
 
 ---
 
@@ -95,7 +96,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 | **High → Mitigated** | 2 | S1, E1 — Untrusted `commands.json` execution (mitigated by trust system in v1.12.0) |
 | **High → Partially Mitigated** | 1 | T1 — Command injection via config (trust system + command summary, but placeholder injection remains) |
 | **Medium → Mitigated** | 1 | S2 — NuGet package spoofing (mitigated by trusted publishing in v1.11.0) |
-| **Medium** | 3 | S3, I1, E2 — Docker image trust, source exposure, path injection |
+| **Medium** | 4 | S3, I1, E2, E4 — Docker image trust, source exposure, path injection, `--yes` trust bypass |
 | **Low** | 7 | T2, T3, T4, R1, R2, D1, D2, D3, E3 |
 | **Informational** | 1 | I3 |
 
