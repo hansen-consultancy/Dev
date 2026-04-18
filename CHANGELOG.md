@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-04-17
+
+### Added
+- `--json` output mode with structured envelope, per-step results, and exit codes (0-6)
+- `--yes` flag to auto-accept `commands.json` trust prompts and frontend file-creation prompts
+- Capture of stderr and last 50 lines of stdout on child process failure, included in JSON data payload
+- Help output in JSON mode includes aliases, chaining rule, placeholders, and global flags
+
+### Security
+- STRIDE: added E4 threat for `--yes` trust bypass (Medium severity)
+
+## [1.12.0] - 2026-02-21
+
+### Added
+- Hash-based trust system for `commands.json`: requires explicit user approval before executing custom commands, using SHA-256 hashing with a persistent trust store at `%APPDATA%/hc-dev/trust.json`
+
+### Security
+- Mitigates STRIDE threats S1, T1, E1 via the new trust system
+- Updated STRIDE S2 to reflect NuGet trusted publishing mitigation
+
+### Documentation
+- Added STRIDE threat model (`STRIDE.md`)
+
 ## [1.11.0] - 2026-02-02
 
 ### Added
