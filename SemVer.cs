@@ -5,7 +5,14 @@ namespace Dev;
 public sealed partial class SemVer : IComparable<SemVer>, IEquatable<SemVer>
 {
     public readonly int Major;
-    public readonly int? Minor, Build, Fix;
+    public readonly int? Minor;
+
+    /// <summary>Third numeric component. Corresponds to the CLI <c>patch</c> bump part.</summary>
+    public readonly int? Build;
+
+    /// <summary>Fourth numeric component. Corresponds to the CLI <c>revision</c> bump part.</summary>
+    public readonly int? Fix;
+
     public readonly string? Suffix, BuildVariables;
     public readonly bool IsAny;
 

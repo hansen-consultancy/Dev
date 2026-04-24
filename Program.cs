@@ -40,13 +40,13 @@ var envelope = new Envelope
 };
 
 var configFile = Path.Combine(path, "commands.json");
-List<ConfigCommand>? configCommands = null;
-ConfigCommand? defaultConfig = null;
+List<CommandsConfigEntry>? configCommands = null;
+CommandsConfigEntry? defaultConfig = null;
 if (File.Exists(configFile))
 {
     try
     {
-        configCommands = JsonSerializer.Deserialize<List<ConfigCommand>>(File.ReadAllText(configFile));
+        configCommands = JsonSerializer.Deserialize<List<CommandsConfigEntry>>(File.ReadAllText(configFile));
         defaultConfig = configCommands?.FirstOrDefault(c => c.Default);
     }
     catch (Exception ex)
@@ -184,7 +184,7 @@ static (string Command, string? Alias) ResolveAlias(string input) => input switc
 static StepResult ExecuteCommand(
     string command, string? alias, string[] commandArgs, string path,
     string? slnFile, string? csprojFile,
-    List<ConfigCommand>? configCommands, DevConfig? devConfig,
+    List<CommandsConfigEntry>? configCommands, DevConfig? devConfig,
     RunContext ctx)
 {
     var step = new StepResult { Command = command, Alias = alias, Args = commandArgs };
@@ -232,13 +232,13 @@ static StepResult ExecuteCommand(
             return step;
         }
 
-        var target = slnFile ?? csprojFile!;
+        var buildTarget = slnFile ?? csprojFile!;
 
         switch (command)
         {
             case "bump": return RunBump(slnFile, csprojFile, commandArgs, devConfig, step, ctx);
             case "bump-commit": return RunBumpCommit(slnFile, csprojFile, commandArgs, devConfig, step, ctx);
-            case "build": return RunBuild(target, step, ctx);
+            case "build": return RunBuild(buildTarget, step, ctx);
             case "launch": return RunLaunch(slnFile, csprojFile, step, ctx);
             default:
                 ctx.Log($"[red]Unknown command: {command}[/]");
@@ -254,7 +254,7 @@ static StepResult ExecuteCommand(
     }
 }
 
-static StepResult RunCustomCommand(ConfigCommand cfg, string? slnFile, string? csprojFile, string path, StepResult step, RunContext ctx)
+static StepResult RunCustomCommand(CommandsConfigEntry cfg, string? slnFile, string? csprojFile, string path, StepResult step, RunContext ctx)
 {
     var cmdLine = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? cfg.Windows : cfg.NonWindows;
     if (string.IsNullOrWhiteSpace(cmdLine))
@@ -395,12 +395,12 @@ static StepResult RunBumpCommit(string? slnFile, string? csprojFile, string[] co
     return step;
 }
 
-static StepResult RunBuild(string target, StepResult step, RunContext ctx)
+static StepResult RunBuild(string buildTarget, StepResult step, RunContext ctx)
 {
-    var (builder, exit, errTail, outTail) = BuildSolutionOrProject(target, ctx);
+    var (builder, exit, errTail, outTail) = BuildSolutionOrProject(buildTarget, ctx);
     step.Data = new Dictionary<string, object?>
     {
-        ["target"] = target,
+        ["target"] = buildTarget,
         ["builder"] = builder,
         ["builderExitCode"] = exit,
         ["stderrTail"] = exit != 0 ? errTail : null,
@@ -626,17 +626,17 @@ static ProjectBumpResult BumpProjectVersion(string projectPath, string part, Run
     return new ProjectBumpResult(projectPath, version, newVersion.ToString(), true, null);
 }
 
-static (string Builder, int ExitCode, string[] StderrTail, string[] StdoutTail) BuildSolutionOrProject(string targetPath, RunContext ctx)
+static (string Builder, int ExitCode, string[] StderrTail, string[] StdoutTail) BuildSolutionOrProject(string buildTarget, RunContext ctx)
 {
-    var buildFile = Path.Combine(Path.GetDirectoryName(targetPath) ?? ".", RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "build.cmd" : "build.sh");
+    var buildFile = Path.Combine(Path.GetDirectoryName(buildTarget) ?? ".", RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "build.cmd" : "build.sh");
     if (File.Exists(buildFile))
     {
-        ctx.Log($"[green]Building[/] {Path.GetFileName(targetPath)} [green]using[/] {Path.GetFileName(buildFile)}[green]...[/]");
+        ctx.Log($"[green]Building[/] {Path.GetFileName(buildTarget)} [green]using[/] {Path.GetFileName(buildFile)}[green]...[/]");
         var (exit, errTail, outTail) = RunProcess(buildFile, "", ctx);
         return (Path.GetFileName(buildFile), exit, errTail, outTail);
     }
-    ctx.Log($"[green]Building[/] {Path.GetFileName(targetPath)} [green]in Release mode...[/]");
-    var (dExit, dErrTail, dOutTail) = RunProcess("dotnet", $"build \"{targetPath}\" -c Release", ctx);
+    ctx.Log($"[green]Building[/] {Path.GetFileName(buildTarget)} [green]in Release mode...[/]");
+    var (dExit, dErrTail, dOutTail) = RunProcess("dotnet", $"build \"{buildTarget}\" -c Release", ctx);
     return ("dotnet", dExit, dErrTail, dOutTail);
 }
 
@@ -782,7 +782,7 @@ static (int ExitCode, string[] StderrTail, string[] StdoutTail) RunProcess(strin
     lock (bufferLock) return (p.ExitCode, errBuffer.ToArray(), outBuffer.ToArray());
 }
 
-static object BuildHelpData(List<ConfigCommand>? configCommands)
+static object BuildHelpData(List<CommandsConfigEntry>? configCommands)
 {
     var aliases = new Dictionary<string, string[]>
     {
@@ -856,7 +856,7 @@ static string BuiltinDescription(string name) => name switch
     _ => name,
 };
 
-static void RenderHelpTable(List<ConfigCommand>? configCommands)
+static void RenderHelpTable(List<CommandsConfigEntry>? configCommands)
 {
     var table = new Table()
         .Title("[yellow]Dev Tool Commands[/]")
@@ -891,7 +891,7 @@ static void RenderHelpTable(List<ConfigCommand>? configCommands)
     AnsiConsole.Write(table);
 }
 
-static bool VerifyCommandsTrust(string configFilePath, List<ConfigCommand> commands, RunContext ctx, Envelope envelope)
+static bool VerifyCommandsTrust(string configFilePath, List<CommandsConfigEntry> commands, RunContext ctx, Envelope envelope)
 {
     var content = File.ReadAllBytes(configFilePath);
     var hash = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
@@ -961,7 +961,7 @@ static bool VerifyCommandsTrust(string configFilePath, List<ConfigCommand> comma
     return true;
 }
 
-static void DisplayCommandSummary(List<ConfigCommand> commands)
+static void DisplayCommandSummary(List<CommandsConfigEntry> commands)
 {
     AnsiConsole.MarkupLine("\nThis configuration replaces the default commands with:");
     foreach (var cmd in commands)
@@ -986,7 +986,7 @@ partial class Program
     private static partial Regex VersionRegex();
 }
 
-internal sealed class ConfigCommand
+internal sealed class CommandsConfigEntry
 {
     public string Name { get; set; } = "";
     public string? Description { get; set; }
