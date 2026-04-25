@@ -353,30 +353,33 @@ static StepResult RunBumpCommit(string? slnFile, string? csprojFile, string[] co
         {
             var nv = newVersions.First();
             ctx.Log($"[green]Committing and tagging version {nv}...[/]");
-            if (Runner.RunOrFail(ProcSpec.Exec("git", $"commit -m \"build: {nv}\""),
-                                 step, ctx, "git_failed", "git commit failed", out var commit)
-              & Runner.RunOrFail(ProcSpec.Exec("git", $"tag {nv}"),
-                                 step, ctx, "git_failed", "git tag failed", out var tag))
+            // Short-circuit: if `git commit` fails, do not run `git tag`. Tagging
+            // after a failed commit would land the tag on the previous commit,
+            // not the intended new one.
+            if (!Runner.RunOrFail(ProcSpec.Exec("git", $"commit -m \"build: {nv}\""),
+                                  step, ctx, "git_commit_failed", "git commit failed", out var commit))
             {
-                gitInfo = new Dictionary<string, object?> { ["committed"] = true, ["tag"] = nv, ["message"] = $"build: {nv}" };
-            }
-            else
-            {
-                step.Error!.Detail = new Dictionary<string, object?>
-                {
-                    ["commitExitCode"] = commit.ExitCode,
-                    ["tagExitCode"] = tag.ExitCode,
-                    ["stderrTail"] = commit.StderrTail.Concat(tag.StderrTail).ToArray(),
-                    ["stdoutTail"] = commit.StdoutTail.Concat(tag.StdoutTail).ToArray(),
-                };
                 gitInfo = new Dictionary<string, object?>
                 {
                     ["committed"] = false,
-                    ["reason"] = "git_failed",
+                    ["reason"] = "git_commit_failed",
                     ["commitExitCode"] = commit.ExitCode,
+                };
+                break;
+            }
+            if (!Runner.RunOrFail(ProcSpec.Exec("git", $"tag {nv}"),
+                                  step, ctx, "git_tag_failed", "git tag failed", out var tag))
+            {
+                gitInfo = new Dictionary<string, object?>
+                {
+                    ["committed"] = true,
+                    ["tagged"] = false,
+                    ["reason"] = "git_tag_failed",
                     ["tagExitCode"] = tag.ExitCode,
                 };
+                break;
             }
+            gitInfo = new Dictionary<string, object?> { ["committed"] = true, ["tag"] = nv, ["message"] = $"build: {nv}" };
             break;
         }
     }
