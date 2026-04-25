@@ -221,7 +221,7 @@ public sealed class BumpPipelineTests
         var pipeline = new BumpPipeline(files, new FakeGitPort());
 
         var outcome = pipeline.Execute(new BumpPlan(
-            new[] { new ProjectCandidate("a.csproj", true, null) },
+            new[] { new BumpTarget("a.csproj", "a", true, null) },
             new BumpSpec(BumpPart.Patch),
             BumpOptions.CommitAndTag()));
 
@@ -240,8 +240,8 @@ public sealed class BumpPipelineTests
         var outcome = pipeline.Execute(new BumpPlan(
             new[]
             {
-                new ProjectCandidate("bad.csproj", true, null),
-                new ProjectCandidate("ok.csproj", true, null),
+                new BumpTarget("bad.csproj", "bad", true, null),
+                new BumpTarget("ok.csproj", "ok", true, null),
             },
             new BumpSpec(BumpPart.Patch),
             BumpOptions.CommitAndTag()));

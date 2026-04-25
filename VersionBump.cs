@@ -170,7 +170,7 @@ internal sealed class BumpPipeline
         return new BumpOutcome(results, ResolveGit(plan, newVersions));
     }
 
-    private PlannedBump PlanOne(ProjectCandidate c, BumpSpec spec, HashSet<string> newVersions)
+    private PlannedBump PlanOne(BumpTarget c, BumpSpec spec, HashSet<string> newVersions)
     {
         if (!c.Include)
             return new PlannedBump(c, default, null, c.SkipReason);
@@ -241,7 +241,7 @@ internal sealed class BumpPipeline
     }
 
     private readonly record struct PlannedBump(
-        ProjectCandidate Cand, ProjectVersionRead Read, SemVer? Bumped, string? Reason);
+        BumpTarget Cand, ProjectVersionRead Read, SemVer? Bumped, string? Reason);
 }
 
 internal sealed record ProjectBumpResult(string Path, string? From, string? To, bool Bumped, string? Reason);
