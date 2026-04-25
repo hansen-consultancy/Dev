@@ -111,7 +111,8 @@ internal sealed class FrontendEnvironment : IFrontendEnvironment
             case CreateDecision.Create:
             default:
                 opts.Log($"[green]Creating[/] {Path.GetFileName(buildFile)} [green]file in the current directory...[/]");
-                var folderName = Path.GetFileName(workspacePath);
+                var trimmed = workspacePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var folderName = Path.GetFileName(trimmed);
                 if (!opts.DryRun) opts.Fs.WriteAllText(buildFile, BuildScriptTemplate(folderName));
                 mutations.Add(new Mutation(buildFile, "created"));
                 return null;
@@ -129,7 +130,8 @@ internal sealed class FrontendEnvironment : IFrontendEnvironment
             if (!content.Contains("*.sh text eol=lf"))
             {
                 opts.Log($"[yellow]Adding LF line endings for bash files to {Path.GetFileName(attributesFile)}...[/]");
-                if (!opts.DryRun) opts.Fs.WriteAllText(attributesFile, content + "\n*.sh text eol=lf");
+                var separator = content.Length == 0 || content.EndsWith('\n') ? string.Empty : "\n";
+                if (!opts.DryRun) opts.Fs.WriteAllText(attributesFile, content + separator + "*.sh text eol=lf\n");
                 mutations.Add(new Mutation(attributesFile, "appended", "*.sh text eol=lf"));
             }
             return ScaffoldState.Ready;
@@ -169,7 +171,7 @@ internal sealed class FrontendEnvironment : IFrontendEnvironment
                        set -euo pipefail
 
                        # enter your frontend folder, if any
-                       cd {{folderName}}/
+                       cd "{{folderName}}/"
 
                        # install dependencies
                        npm ci
@@ -194,8 +196,18 @@ internal sealed class FrontendBuild : IFrontendBuild
 {
     public BuildOutcome Run(string workspacePath, BuildOptions options)
     {
-        var dockerCommand = $"docker run --rm -v \"{workspacePath}:/src\" -w /src {options.Image}";
-        var result = options.Runner.Run(ProcSpec.Shell(dockerCommand), options.Ctx);
+        // Invoke docker directly with an argv list rather than building a shell command:
+        // workspacePath comes from the caller's working directory and could contain
+        // quotes, $(…), or backticks that would otherwise break out of a `bash -c "…"`
+        // wrapper. ArgumentList delivers each token verbatim to the docker process.
+        var argv = new[]
+        {
+            "run", "--rm",
+            "-v", $"{workspacePath}:/src",
+            "-w", "/src",
+            options.Image,
+        };
+        var result = options.Runner.Run(ProcSpec.ExecArgs("docker", argv), options.Ctx);
         return new BuildOutcome(options.Image, result.ExitCode, result.StdoutTail, result.StderrTail);
     }
 }

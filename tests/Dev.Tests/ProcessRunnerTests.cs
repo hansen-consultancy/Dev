@@ -27,20 +27,49 @@ public sealed class ProcSpecTests
     {
         var spec = ProcSpec.Shell("docker run --rm hello-world");
 
+        Assert.Empty(spec.Arguments);
+        Assert.NotNull(spec.ArgList);
+
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             Assert.Equal("cmd.exe", spec.FileName);
-            Assert.Equal("/c docker run --rm hello-world", spec.Arguments);
+            Assert.Equal(new[] { "/S", "/C", "docker run --rm hello-world" }, spec.ArgList);
             Assert.Equal("cmd", spec.DisplayShell);
         }
         else
         {
             Assert.Equal("bash", spec.FileName);
-            Assert.Equal("-c \"docker run --rm hello-world\"", spec.Arguments);
+            Assert.Equal(new[] { "-c", "docker run --rm hello-world" }, spec.ArgList);
             Assert.Equal("bash", spec.DisplayShell);
         }
 
         Assert.Equal("docker run --rm hello-world", spec.DisplayCommandLine);
+    }
+
+    [Fact]
+    public void Shell_passes_command_line_verbatim_through_argument_list()
+    {
+        // Hardens against quote-escape injection: a command line containing
+        // double quotes or shell metacharacters must be delivered to the
+        // interpreter as a single argv element, not embedded in a quoted wrapper.
+        var malicious = "echo \"hi\"; rm -rf $(pwd)";
+
+        var spec = ProcSpec.Shell(malicious);
+
+        Assert.NotNull(spec.ArgList);
+        Assert.Equal(malicious, spec.ArgList![spec.ArgList.Count - 1]);
+        Assert.Empty(spec.Arguments);
+    }
+
+    [Fact]
+    public void ExecArgs_uses_argument_list_and_renders_display_command_line()
+    {
+        var spec = ProcSpec.ExecArgs("docker", new[] { "run", "--rm", "-v", "/tmp dir:/src", "hello" });
+
+        Assert.Equal("docker", spec.FileName);
+        Assert.Empty(spec.Arguments);
+        Assert.Equal(new[] { "run", "--rm", "-v", "/tmp dir:/src", "hello" }, spec.ArgList);
+        Assert.Equal("docker run --rm -v /tmp dir:/src hello", spec.DisplayCommandLine);
     }
 }
 
