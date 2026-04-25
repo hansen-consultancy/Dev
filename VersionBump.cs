@@ -81,7 +81,7 @@ internal sealed class ProcessGitPort : IGitPort
 }
 
 internal sealed record BumpPlan(
-    IReadOnlyList<ProjectCandidate> Projects,
+    IReadOnlyList<BumpTarget> Projects,
     BumpSpec Spec,
     BumpOptions Options);
 
@@ -207,5 +207,3 @@ internal sealed class BumpPipeline
 }
 
 internal sealed record ProjectBumpResult(string Path, string? From, string? To, bool Bumped, string? Reason);
-
-internal sealed record ProjectCandidate(string Path, bool Include, string? SkipReason);

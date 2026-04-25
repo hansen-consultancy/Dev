@@ -12,7 +12,7 @@ public sealed class BumpPipelineTests
         var pipeline = new BumpPipeline(files, git);
 
         var outcome = pipeline.Execute(new BumpPlan(
-            new[] { new ProjectCandidate("a.csproj", false, "submodule") },
+            new[] { new BumpTarget("a.csproj", "a", false, "submodule") },
             new BumpSpec(BumpPart.Minor),
             new BumpOptions()));
 
@@ -34,8 +34,8 @@ public sealed class BumpPipelineTests
         var outcome = pipeline.Execute(new BumpPlan(
             new[]
             {
-                new ProjectCandidate("missing.csproj", true, null),
-                new ProjectCandidate("untagged.csproj", true, null),
+                new BumpTarget("missing.csproj", "missing", true, null),
+                new BumpTarget("untagged.csproj", "untagged", true, null),
             },
             new BumpSpec(BumpPart.Patch),
             new BumpOptions()));
@@ -58,8 +58,8 @@ public sealed class BumpPipelineTests
         var outcome = pipeline.Execute(new BumpPlan(
             new[]
             {
-                new ProjectCandidate("a.csproj", true, null),
-                new ProjectCandidate("b.csproj", true, null),
+                new BumpTarget("a.csproj", "a", true, null),
+                new BumpTarget("b.csproj", "b", true, null),
             },
             new BumpSpec(BumpPart.Minor),
             BumpOptions.CommitAndTag()));
@@ -87,8 +87,8 @@ public sealed class BumpPipelineTests
         var outcome = pipeline.Execute(new BumpPlan(
             new[]
             {
-                new ProjectCandidate("a.csproj", true, null),
-                new ProjectCandidate("b.csproj", true, null),
+                new BumpTarget("a.csproj", "a", true, null),
+                new BumpTarget("b.csproj", "b", true, null),
             },
             new BumpSpec(BumpPart.Patch),
             BumpOptions.CommitAndTag()));
@@ -104,7 +104,7 @@ public sealed class BumpPipelineTests
     {
         var pipeline = new BumpPipeline(new InMemoryProjectVersionFile(), new FakeGitPort());
         var outcome = pipeline.Execute(new BumpPlan(
-            Array.Empty<ProjectCandidate>(),
+            Array.Empty<BumpTarget>(),
             new BumpSpec(BumpPart.Minor),
             BumpOptions.CommitAndTag()));
 
@@ -123,7 +123,7 @@ public sealed class BumpPipelineTests
         var pipeline = new BumpPipeline(files, git);
 
         var outcome = pipeline.Execute(new BumpPlan(
-            new[] { new ProjectCandidate("a.csproj", true, null) },
+            new[] { new BumpTarget("a.csproj", "a", true, null) },
             new BumpSpec(BumpPart.Patch),
             BumpOptions.CommitAndTag()));
 
@@ -147,7 +147,7 @@ public sealed class BumpPipelineTests
         var pipeline = new BumpPipeline(files, git);
 
         var outcome = pipeline.Execute(new BumpPlan(
-            new[] { new ProjectCandidate("a.csproj", true, null) },
+            new[] { new BumpTarget("a.csproj", "a", true, null) },
             new BumpSpec(BumpPart.Patch),
             BumpOptions.CommitAndTag()));
 
@@ -166,7 +166,7 @@ public sealed class BumpPipelineTests
         var pipeline = new BumpPipeline(files, git);
 
         var outcome = pipeline.Execute(new BumpPlan(
-            new[] { new ProjectCandidate("a.csproj", true, null) },
+            new[] { new BumpTarget("a.csproj", "a", true, null) },
             new BumpSpec(BumpPart.Minor),
             new BumpOptions(DryRun: true, StageChanges: true, Commit: true, Tag: true)));
 
@@ -193,7 +193,7 @@ public sealed class BumpPipelineTests
         var pipeline = new BumpPipeline(files, git);
 
         var outcome = pipeline.Execute(new BumpPlan(
-            new[] { new ProjectCandidate("a.csproj", true, null) },
+            new[] { new BumpTarget("a.csproj", "a", true, null) },
             new BumpSpec(BumpPart.Patch),
             new BumpOptions(StageChanges: true, Commit: true, Tag: true,
                             CommitMessage: v => $"chore(release): {v}")));
@@ -211,7 +211,7 @@ public sealed class BumpPipelineTests
         var pipeline = new BumpPipeline(files, git);
 
         var outcome = pipeline.Execute(new BumpPlan(
-            new[] { new ProjectCandidate("a.csproj", true, null) },
+            new[] { new BumpTarget("a.csproj", "a", true, null) },
             new BumpSpec(BumpPart.Patch),
             new BumpOptions()));
 
