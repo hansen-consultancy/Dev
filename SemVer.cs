@@ -2,6 +2,13 @@
 
 namespace Dev;
 
+public enum BumpPart { Major, Minor, Patch, Revision }
+
+public readonly record struct BumpSpec(
+    BumpPart Part,
+    string? PreReleaseSuffix = null,
+    string? BuildMetadata = null);
+
 public sealed partial class SemVer : IComparable<SemVer>, IEquatable<SemVer>
 {
     public readonly int Major;
@@ -163,4 +170,36 @@ public sealed partial class SemVer : IComparable<SemVer>, IEquatable<SemVer>
 
     [GeneratedRegex("^(?<major>[0-9]+)(\\.(?<minor>[0-9]+))?(\\.(?<build>[0-9]+))?(\\.(?<fix>[0-9]+))?(-(?<suffix>.*))?(\\+(?<buildvars>.*))?$", RegexOptions.IgnoreCase | RegexOptions.Compiled, "en-BE")]
     private static partial Regex VersionRegex();
+
+    public SemVer Bump(BumpSpec spec)
+    {
+        var bumped = spec.Part switch
+        {
+            BumpPart.Major => new SemVer(Major + 1, 0, 0, Fix is null ? Fix : 0, Suffix, BuildVariables),
+            BumpPart.Minor => new SemVer(Major, Minor + 1, 0, Fix is null ? Fix : 0, Suffix, BuildVariables),
+            BumpPart.Patch => new SemVer(Major, Minor, Build + 1, Fix is null ? Fix : 0, Suffix, BuildVariables),
+            _ /* Revision */ => new SemVer(Major, Minor, Build, Fix + 1, Suffix, BuildVariables),
+        };
+
+        if (spec.PreReleaseSuffix is null && spec.BuildMetadata is null)
+            return bumped;
+
+        return new SemVer(
+            bumped.Major,
+            bumped.Minor,
+            bumped.Build,
+            bumped.Fix,
+            spec.PreReleaseSuffix ?? bumped.Suffix,
+            spec.BuildMetadata ?? bumped.BuildVariables);
+    }
+
+    public SemVer Bump(BumpPart part) => Bump(new BumpSpec(part));
+
+    public static BumpPart ParsePart(string? raw) => raw switch
+    {
+        "major" => BumpPart.Major,
+        "minor" => BumpPart.Minor,
+        "patch" => BumpPart.Patch,
+        _ => BumpPart.Revision,
+    };
 }

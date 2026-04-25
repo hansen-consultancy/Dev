@@ -4,7 +4,11 @@
 > **Date:** 2026-04-25
 > **Scope:** The `dev` .NET global tool, its configuration files, and its interactions with the local system.
 
-> **v1.13.0 note:** Child-process execution was extracted from `Program.cs` into a `ProcessRunner.cs` port + adapter (`IProcessRunner`, `ProcSpec`, `ProcRunResult`, `RealProcessRunner`). Behavior is preserved verbatim — no threat severities change — but threats that pivot on process spawning, OS-shell wrapping, output tailing, or `WaitForExit` now point at `ProcessRunner.cs` in addition to (or instead of) the call sites in `Program.cs`.
+> **v1.13.0 note:** Two architectural refactors land in this version, both behavior-preserving:
+> 1. Child-process execution extracted into `ProcessRunner.cs` (`IProcessRunner`, `ProcSpec`, `ProcRunResult`, `RealProcessRunner`).
+> 2. Version-bump split into pure `SemVer` math, an `IProjectVersionFile` file-mutation port (`CsprojVersionFile` owns the `<Version>` regex), an `IGitPort` (`ProcessGitPort` rides on `IProcessRunner`), and a `BumpPipeline` orchestrator that owns the cross-project version-agreement invariant and the commit-then-tag sequencing.
+>
+> No threat severities change. Affected-component references for T2, T3, R1, D2, etc. now point at the new files where the relevant code lives.
 
 ## Overview
 
@@ -46,7 +50,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 |---|--------|--------------------|----------|------------|
 | T1 | **Command injection via `commands.json`** — Custom commands from `commands.json` are passed directly to `cmd.exe /c` or `bash -c` without sanitization. A malicious config can execute arbitrary shell commands. | `Program.cs:RunCustomCommand` → `ProcSpec.Shell` (`ProcessRunner.cs`) | **High** → **Partially Mitigated** | **Partially mitigated in v1.12.0:** The trust system ensures the user must explicitly approve the `commands.json` content before any commands execute. The command summary shows the exact shell commands that will run, giving the user visibility. However, variable placeholders (`{sln}`, `{project}`, `{dir}`) are still injected unsanitized — if paths contain shell metacharacters, this could lead to unintended command execution. The trust check covers the config file itself, not the runtime-resolved commands. |
 | T2 | **Build script tampering** — The tool executes `build.cmd`/`build.sh` if found in the project directory, with no integrity check. | `Program.cs:BuildSolutionOrProject` (~line 617) → `ProcessRunner.cs:RealProcessRunner` | **Medium** | An attacker who can write to the project directory can replace build scripts. This is a standard risk for local development tools. |
-| T3 | **Version file tampering via regex** — The version regex `<Version>(?<version>.*)</Version>` uses a greedy match that could be exploited with crafted `.csproj` content to write unexpected values. | `Program.cs:BumpProjectVersion` (~line 584), `VersionRegex` (~line 919) | **Low** | The regex is simple and applied to XML content the developer controls. Risk is minimal in practice. |
+| T3 | **Version file tampering via regex** — The version regex `<Version>(?<version>.*)</Version>` uses a greedy match that could be exploited with crafted `.csproj` content to write unexpected values. | `VersionBump.cs:CsprojVersionFile.VersionTagRegex` (csproj edit), `SemVer.cs:VersionRegex` (parse) | **Low** | The regex is simple and applied to XML content the developer controls. Risk is minimal in practice. |
 | T4 | **Parent directory `dev.json` traversal** — The tool checks the parent directory for `dev.json` if not found locally. A malicious `dev.json` placed in a shared parent directory could influence the tool's behavior (e.g., suppressing version bumps via `IgnoreProjects`). | `Program.cs:66-76` | **Low** | Only traverses one level up. The impact is limited to ignoring projects during version bumping. |
 
 ---
@@ -55,7 +59,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 
 | # | Threat | Affected Component | Severity | Mitigation |
 |---|--------|--------------------|----------|------------|
-| R1 | **Automated git commits without audit trail** — The `bump-commit` command creates git commits and tags automatically. If the tool is run unintentionally or by an unauthorized script, changes are committed without explicit user confirmation. | `Program.cs:RunBumpCommit` (~lines 311–390) — `bump-commit` flow | **Low** | Git commits include author information from the local git config. The commit message follows a fixed format (`build: {version}`). The risk is low since this requires local access. Consider adding a confirmation prompt for commit operations. |
+| R1 | **Automated git commits without audit trail** — The `bump-commit` command creates git commits and tags automatically. If the tool is run unintentionally or by an unauthorized script, changes are committed without explicit user confirmation. | `VersionBump.cs:BumpPipeline.ResolveGit` (commit/tag policy) → `ProcessGitPort` → `ProcessRunner.cs`; `Program.cs:RunBumpCommit` (CLI envelope) | **Low** | Git commits include author information from the local git config. The commit message follows a fixed format (`build: {version}`). The risk is low since this requires local access. Consider adding a confirmation prompt for commit operations. |
 | R2 | **No logging of custom command execution** — When custom commands from `commands.json` run, there is no persistent log of what was executed. | `Program.cs:RunCustomCommand` (~line 255) | **Low** | The command output goes to stdout, but there is no file-based audit log. For a local development tool, this is acceptable. |
 
 ---

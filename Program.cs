@@ -5,7 +5,6 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using Dev;
 using Microsoft.VisualStudio.SolutionPersistence.Model;
 using Microsoft.VisualStudio.SolutionPersistence.Serializer;
@@ -291,98 +290,62 @@ static StepResult RunCustomCommand(CommandsConfigEntry cfg, string? slnFile, str
 static StepResult RunBump(string? slnFile, string? csprojFile, string[] commandArgs, DevConfig? devConfig, StepResult step, RunContext ctx)
 {
     var part = commandArgs.Length > 0 ? commandArgs[0] : "minor";
-    var results = new List<ProjectBumpResult>();
-    if (slnFile != null)
-    {
-        foreach (var c in GetProjectPaths(slnFile, devConfig?.IgnoreProjects, ctx))
-        {
-            if (!c.Include) { results.Add(new ProjectBumpResult(c.Path, null, null, false, c.SkipReason)); continue; }
-            results.Add(BumpProjectVersion(c.Path, part, ctx));
-        }
-    }
-    else if (csprojFile != null)
-    {
-        results.Add(BumpProjectVersion(csprojFile, part, ctx));
-    }
-    step.Data = new Dictionary<string, object?> { ["part"] = part, ["projects"] = results };
+    var outcome = ExecuteBump(slnFile, csprojFile, part, devConfig, new BumpOptions(), ctx);
+    step.Data = new Dictionary<string, object?> { ["part"] = part, ["projects"] = outcome.Projects };
     return step;
 }
 
 static StepResult RunBumpCommit(string? slnFile, string? csprojFile, string[] commandArgs, DevConfig? devConfig, StepResult step, RunContext ctx)
 {
     var part = commandArgs.Length > 0 ? commandArgs[0] : "minor";
-    var results = new List<ProjectBumpResult>();
-    var newVersions = new HashSet<string>();
+    var outcome = ExecuteBump(slnFile, csprojFile, part, devConfig, BumpOptions.CommitAndTag(), ctx);
 
-    void Bump(string projectPath)
+    var gitInfo = new Dictionary<string, object?>();
+    if (outcome.Git.Committed)
     {
-        var r = BumpProjectVersion(projectPath, part, ctx);
-        results.Add(r);
-        if (r.Bumped && r.To != null)
-        {
-            newVersions.Add(r.To);
-            Runner.Run(ProcSpec.Exec("git", $"add \"{projectPath}\""), ctx);
-        }
+        gitInfo["committed"] = true;
+        gitInfo["tag"] = outcome.Git.Tag;
+        gitInfo["message"] = $"build: {outcome.Git.Tag}";
     }
-
-    if (slnFile != null)
+    else
     {
-        foreach (var c in GetProjectPaths(slnFile, devConfig?.IgnoreProjects, ctx))
+        gitInfo["committed"] = false;
+        gitInfo["reason"] = outcome.Git.Reason;
+        if (outcome.Git.Reason == "git_failed")
         {
-            if (!c.Include) { results.Add(new ProjectBumpResult(c.Path, null, null, false, c.SkipReason)); continue; }
-            Bump(c.Path);
-        }
-    }
-    else if (csprojFile != null)
-    {
-        Bump(csprojFile);
-    }
-
-    Dictionary<string, object?> gitInfo;
-    switch (newVersions.Count)
-    {
-        case 0:
-            ctx.Log("[yellow]No versions found to bump.[/]");
-            gitInfo = new Dictionary<string, object?> { ["committed"] = false, ["reason"] = "no_bump" };
-            break;
-        case > 1:
-            ctx.Log("[red]Multiple versions found to bump. Please commit them separately.[/]");
-            gitInfo = new Dictionary<string, object?> { ["committed"] = false, ["reason"] = "multiple_versions" };
-            break;
-        default:
-        {
-            var nv = newVersions.First();
-            ctx.Log($"[green]Committing and tagging version {nv}...[/]");
-            if (Runner.RunOrFail(ProcSpec.Exec("git", $"commit -m \"build: {nv}\""),
-                                 step, ctx, "git_failed", "git commit failed", out var commit)
-              & Runner.RunOrFail(ProcSpec.Exec("git", $"tag {nv}"),
-                                 step, ctx, "git_failed", "git tag failed", out var tag))
+            gitInfo["commitExitCode"] = outcome.Git.CommitExit;
+            gitInfo["tagExitCode"] = outcome.Git.TagExit;
+            step.Status = "failed";
+            step.ExitCode = 1;
+            step.Error = new StepError
             {
-                gitInfo = new Dictionary<string, object?> { ["committed"] = true, ["tag"] = nv, ["message"] = $"build: {nv}" };
-            }
-            else
-            {
-                step.Error!.Detail = new Dictionary<string, object?>
+                Code = "git_failed",
+                Message = "git commit/tag failed",
+                Detail = new Dictionary<string, object?>
                 {
-                    ["commitExitCode"] = commit.ExitCode,
-                    ["tagExitCode"] = tag.ExitCode,
-                    ["stderrTail"] = commit.StderrTail.Concat(tag.StderrTail).ToArray(),
-                    ["stdoutTail"] = commit.StdoutTail.Concat(tag.StdoutTail).ToArray(),
-                };
-                gitInfo = new Dictionary<string, object?>
-                {
-                    ["committed"] = false,
-                    ["reason"] = "git_failed",
-                    ["commitExitCode"] = commit.ExitCode,
-                    ["tagExitCode"] = tag.ExitCode,
-                };
-            }
-            break;
+                    ["commitExitCode"] = outcome.Git.CommitExit,
+                    ["tagExitCode"] = outcome.Git.TagExit,
+                    ["stderrTail"] = outcome.Git.StderrTail,
+                    ["stdoutTail"] = outcome.Git.StdoutTail,
+                },
+            };
         }
     }
 
-    step.Data = new Dictionary<string, object?> { ["part"] = part, ["projects"] = results, ["git"] = gitInfo };
+    step.Data = new Dictionary<string, object?> { ["part"] = part, ["projects"] = outcome.Projects, ["git"] = gitInfo };
     return step;
+}
+
+static BumpOutcome ExecuteBump(string? slnFile, string? csprojFile, string part, DevConfig? devConfig, BumpOptions options, RunContext ctx)
+{
+    var candidates = slnFile != null
+        ? GetProjectPaths(slnFile, devConfig?.IgnoreProjects, ctx).ToList()
+        : csprojFile != null
+            ? new List<ProjectCandidate> { new(csprojFile, true, null) }
+            : new List<ProjectCandidate>();
+
+    var pipeline = new BumpPipeline(new CsprojVersionFile(), new ProcessGitPort(Runner, ctx), ctx.Log);
+    return pipeline.Execute(new BumpPlan(candidates, new BumpSpec(SemVer.ParsePart(part)), options));
 }
 
 static StepResult RunBuild(string buildTarget, StepResult step, RunContext ctx)
@@ -579,39 +542,6 @@ static StepResult RunFrontend(string path, StepResult step, RunContext ctx)
         step.Error = new StepError { Code = "docker_failed", Message = $"Docker exited with code {result.ExitCode}" };
     }
     return step;
-}
-
-static ProjectBumpResult BumpProjectVersion(string projectPath, string part, RunContext ctx)
-{
-    if (!File.Exists(projectPath))
-    {
-        ctx.Log($"[red]Project {Path.GetFileNameWithoutExtension(projectPath)} not found, skipping.[/]");
-        return new ProjectBumpResult(projectPath, null, null, false, "not_found");
-    }
-
-    var csproj = File.ReadAllText(projectPath);
-    var versionMatch = VersionRegex().Match(csproj);
-    if (!versionMatch.Success)
-    {
-        ctx.Log($"[red]No version found in {Path.GetFileNameWithoutExtension(projectPath)}.[/]");
-        return new ProjectBumpResult(projectPath, null, null, false, "no_version_tag");
-    }
-
-    var version = versionMatch.Groups["version"].Value;
-    var semver = new SemVer(version);
-    var newVersion = part switch
-    {
-        "major" => new(semver.Major + 1, 0, 0, semver.Fix is null ? semver.Fix : 0, semver.Suffix, semver.BuildVariables),
-        "minor" => new(semver.Major, semver.Minor + 1, 0, semver.Fix is null ? semver.Fix : 0, semver.Suffix, semver.BuildVariables),
-        "patch" => new(semver.Major, semver.Minor, semver.Build + 1, semver.Fix is null ? semver.Fix : 0, semver.Suffix, semver.BuildVariables),
-        _ => new SemVer(semver.Major, semver.Minor, semver.Build, semver.Fix + 1, semver.Suffix, semver.BuildVariables),
-    };
-
-    ctx.Log($"[green]Bumping[/] {Path.GetFileNameWithoutExtension(projectPath)} [green]from[/] [blue]{version}[/] [green]to[/] [yellow]{newVersion}[/]");
-    csproj = VersionRegex().Replace(csproj, $"<Version>{newVersion}</Version>");
-    File.WriteAllText(projectPath, csproj);
-
-    return new ProjectBumpResult(projectPath, version, newVersion.ToString(), true, null);
 }
 
 static (string Builder, ProcRunResult Result) BuildSolutionOrProject(string buildTarget, RunContext ctx)
@@ -915,9 +845,6 @@ static void DisplayCommandSummary(List<CommandsConfigEntry> commands)
 
 partial class Program
 {
-    [GeneratedRegex("<Version>(?<version>.*)</Version>")]
-    private static partial Regex VersionRegex();
-
     internal static IProcessRunner Runner { get; set; } = new RealProcessRunner();
 }
 
@@ -940,10 +867,6 @@ internal sealed class TrustStore
 {
     public Dictionary<string, string> TrustedConfigs { get; set; } = new();
 }
-
-internal sealed record ProjectBumpResult(string Path, string? From, string? To, bool Bumped, string? Reason);
-
-internal sealed record ProjectCandidate(string Path, bool Include, string? SkipReason);
 
 internal sealed class RunContext
 {
