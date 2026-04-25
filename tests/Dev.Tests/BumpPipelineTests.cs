@@ -97,6 +97,17 @@ public sealed class BumpPipelineTests
         Assert.Equal("multiple_versions", outcome.Git.Reason);
         Assert.Empty(git.CommitCalls);
         Assert.Empty(git.TagCalls);
+        // Invariant gate fires before any disk writes — neither file is mutated
+        // and neither was staged. Each project's result reports the planned new
+        // version with reason `multiple_versions_blocked` for transparency.
+        Assert.Null(files.WrittenVersion("a.csproj"));
+        Assert.Null(files.WrittenVersion("b.csproj"));
+        Assert.Empty(git.AddCalls);
+        Assert.All(outcome.Projects, p =>
+        {
+            Assert.False(p.Bumped);
+            Assert.Equal("multiple_versions_blocked", p.Reason);
+        });
     }
 
     [Fact]
@@ -113,13 +124,12 @@ public sealed class BumpPipelineTests
     }
 
     [Fact]
-    public void Commit_failure_reports_git_failed_with_merged_tails_and_still_runs_tag()
+    public void Commit_failure_short_circuits_and_does_not_run_tag()
     {
         var files = new InMemoryProjectVersionFile();
         files.SetVersion("a.csproj", "1.0.0");
         var git = new FakeGitPort();
         git.NextCommit = (1, new[] { "commit err" }, new[] { "commit out" });
-        git.NextTag = (1, new[] { "tag err" }, new[] { "tag out" });
         var pipeline = new BumpPipeline(files, git);
 
         var outcome = pipeline.Execute(new BumpPlan(
@@ -128,17 +138,17 @@ public sealed class BumpPipelineTests
             BumpOptions.CommitAndTag()));
 
         Assert.False(outcome.Git.Committed);
-        Assert.Equal("git_failed", outcome.Git.Reason);
+        Assert.Equal("git_commit_failed", outcome.Git.Reason);
         Assert.Equal(1, outcome.Git.CommitExit);
-        Assert.Equal(1, outcome.Git.TagExit);
+        Assert.Null(outcome.Git.TagExit);
         Assert.Single(git.CommitCalls);
-        Assert.Single(git.TagCalls); // tag still ran despite commit failure
-        Assert.Equal(new[] { "commit err", "tag err" }, outcome.Git.StderrTail);
-        Assert.Equal(new[] { "commit out", "tag out" }, outcome.Git.StdoutTail);
+        Assert.Empty(git.TagCalls); // tag skipped: would otherwise land on previous commit
+        Assert.Equal(new[] { "commit err" }, outcome.Git.StderrTail);
+        Assert.Equal(new[] { "commit out" }, outcome.Git.StdoutTail);
     }
 
     [Fact]
-    public void Tag_failure_when_commit_succeeds_still_reports_git_failed()
+    public void Tag_failure_when_commit_succeeds_reports_git_tag_failed_with_committed_true()
     {
         var files = new InMemoryProjectVersionFile();
         files.SetVersion("a.csproj", "1.0.0");
@@ -151,8 +161,8 @@ public sealed class BumpPipelineTests
             new BumpSpec(BumpPart.Patch),
             BumpOptions.CommitAndTag()));
 
-        Assert.False(outcome.Git.Committed);
-        Assert.Equal("git_failed", outcome.Git.Reason);
+        Assert.True(outcome.Git.Committed); // commit landed; only the tag failed
+        Assert.Equal("git_tag_failed", outcome.Git.Reason);
         Assert.Equal(0, outcome.Git.CommitExit);
         Assert.Equal(1, outcome.Git.TagExit);
     }
@@ -185,7 +195,7 @@ public sealed class BumpPipelineTests
     }
 
     [Fact]
-    public void Custom_commit_message_is_passed_through()
+    public void Custom_commit_message_is_passed_through_and_returned_in_outcome()
     {
         var files = new InMemoryProjectVersionFile();
         files.SetVersion("a.csproj", "1.0.0");
@@ -200,6 +210,49 @@ public sealed class BumpPipelineTests
 
         Assert.True(outcome.Git.Committed);
         Assert.Equal("chore(release): 1.0.1", git.CommitCalls.Single());
+        Assert.Equal("chore(release): 1.0.1", outcome.Git.Message);
+    }
+
+    [Fact]
+    public void Default_commit_message_is_returned_in_outcome()
+    {
+        var files = new InMemoryProjectVersionFile();
+        files.SetVersion("a.csproj", "1.0.0");
+        var pipeline = new BumpPipeline(files, new FakeGitPort());
+
+        var outcome = pipeline.Execute(new BumpPlan(
+            new[] { new BumpTarget("a.csproj", "a", true, null) },
+            new BumpSpec(BumpPart.Patch),
+            BumpOptions.CommitAndTag()));
+
+        Assert.Equal("build: 1.0.1", outcome.Git.Message);
+    }
+
+    [Fact]
+    public void Malformed_version_string_is_skipped_with_dedicated_reason()
+    {
+        var files = new InMemoryProjectVersionFile();
+        files.SetMalformed("bad.csproj", "not.a.version");
+        files.SetVersion("ok.csproj", "1.0.0");
+        var git = new FakeGitPort();
+        var pipeline = new BumpPipeline(files, git);
+
+        var outcome = pipeline.Execute(new BumpPlan(
+            new[]
+            {
+                new BumpTarget("bad.csproj", "bad", true, null),
+                new BumpTarget("ok.csproj", "ok", true, null),
+            },
+            new BumpSpec(BumpPart.Patch),
+            BumpOptions.CommitAndTag()));
+
+        Assert.Equal("malformed_version", outcome.Projects[0].Reason);
+        Assert.False(outcome.Projects[0].Bumped);
+        Assert.True(outcome.Projects[1].Bumped);
+        Assert.Equal("1.0.1", outcome.Projects[1].To);
+        // Pipeline does not abort the run — the malformed project is skipped and
+        // the rest proceed normally.
+        Assert.True(outcome.Git.Committed);
     }
 
     [Fact]
@@ -224,11 +277,13 @@ public sealed class BumpPipelineTests
 internal sealed class InMemoryProjectVersionFile : IProjectVersionFile
 {
     private readonly Dictionary<string, string?> _versions = new();
+    private readonly Dictionary<string, string> _malformed = new();
     private readonly HashSet<string> _missing = new();
     private readonly HashSet<string> _untagged = new();
     private readonly Dictionary<string, string> _written = new();
 
     public void SetVersion(string path, string version) => _versions[path] = version;
+    public void SetMalformed(string path, string raw) => _malformed[path] = raw;
     public void SetMissing(string path) => _missing.Add(path);
     public void SetUntagged(string path) => _untagged.Add(path);
     public string? WrittenVersion(string path) => _written.TryGetValue(path, out var v) ? v : null;
@@ -239,6 +294,8 @@ internal sealed class InMemoryProjectVersionFile : IProjectVersionFile
             return new ProjectVersionRead(projectPath, false, null, null, "not_found");
         if (_untagged.Contains(projectPath))
             return new ProjectVersionRead(projectPath, true, null, null, "no_version_tag");
+        if (_malformed.TryGetValue(projectPath, out var bad))
+            return new ProjectVersionRead(projectPath, true, bad, null, "malformed_version");
         if (_versions.TryGetValue(projectPath, out var raw) && raw is not null)
             return new ProjectVersionRead(projectPath, true, raw, new SemVer(raw), null);
         return new ProjectVersionRead(projectPath, false, null, null, "not_found");

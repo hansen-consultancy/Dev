@@ -269,26 +269,27 @@ static StepResult RunBumpCommit(Workspace workspace, string[] commandArgs, StepR
     var outcome = ExecuteBump(workspace, part, BumpOptions.CommitAndTag(), ctx);
 
     var gitInfo = new Dictionary<string, object?>();
-    if (outcome.Git.Committed)
+    if (outcome.Git.Committed && outcome.Git.Tag is not null)
     {
         gitInfo["committed"] = true;
         gitInfo["tag"] = outcome.Git.Tag;
-        gitInfo["message"] = $"build: {outcome.Git.Tag}";
+        gitInfo["message"] = outcome.Git.Message;
     }
     else
     {
-        gitInfo["committed"] = false;
+        gitInfo["committed"] = outcome.Git.Committed;
         gitInfo["reason"] = outcome.Git.Reason;
-        if (outcome.Git.Reason == "git_failed")
+        if (outcome.Git.Reason is "git_commit_failed" or "git_tag_failed")
         {
             gitInfo["commitExitCode"] = outcome.Git.CommitExit;
             gitInfo["tagExitCode"] = outcome.Git.TagExit;
+            gitInfo["message"] = outcome.Git.Message;
             step.Status = "failed";
             step.ExitCode = 1;
             step.Error = new StepError
             {
-                Code = "git_failed",
-                Message = "git commit/tag failed",
+                Code = outcome.Git.Reason,
+                Message = outcome.Git.Reason == "git_commit_failed" ? "git commit failed" : "git tag failed",
                 Detail = new Dictionary<string, object?>
                 {
                     ["commitExitCode"] = outcome.Git.CommitExit,

@@ -135,7 +135,7 @@ public sealed class Workspace
         {
             var displayName = Path.GetFileNameWithoutExtension(projectPath);
 
-            if (IsInGitSubmodule(projectPath, fs))
+            if (IsInGitSubmodule(projectPath, fs, log))
             {
                 log?.Invoke($"[yellow]Skipping[/] {displayName} [yellow](inside git submodule)[/]");
                 targets.Add(new BumpTarget(projectPath, displayName, false, "submodule"));
@@ -154,7 +154,7 @@ public sealed class Workspace
         return targets;
     }
 
-    private static bool IsInGitSubmodule(string filePath, IFileSystem fs)
+    private static bool IsInGitSubmodule(string filePath, IFileSystem fs, Action<string>? log)
     {
         try
         {
@@ -168,8 +168,14 @@ public sealed class Workspace
             }
             return false;
         }
-        catch
+        catch (Exception ex)
         {
+            // Filesystem walks can fail on permission issues, broken symlinks, or
+            // long paths. Surface the cause via the log channel so an unexpected
+            // bump (project treated as non-submodule because of an IO error) is
+            // not silent. The discovery does not abort — we still default to
+            // "not in submodule" so the project flows through normal handling.
+            log?.Invoke($"[yellow]Submodule check failed for[/] {filePath}: {ex.Message}");
             return false;
         }
     }
@@ -223,6 +229,12 @@ internal sealed class SolutionPersistenceReader : ISolutionReader
         var serializer = SolutionSerializers.GetSerializerByMoniker(slnPath)
             ?? throw new InvalidOperationException($"Unable to find a serializer for {slnPath}");
 
+        // Sync-over-async at the CLI's outer boundary. A .NET console app has no
+        // captured SynchronizationContext, so `GetAwaiter().GetResult()` cannot
+        // deadlock the way it can in UI/ASP.NET callers. Keeping the surface sync
+        // avoids forcing every caller (Workspace.Discover, Program.Main) to
+        // become async for one I/O call. If this type is ever reused outside the
+        // CLI, prefer wrapping with `Task.Run(...).GetAwaiter().GetResult()`.
         var solution = serializer.OpenAsync(slnPath, CancellationToken.None).GetAwaiter().GetResult();
         var slnDir = Path.GetDirectoryName(slnPath) ?? "";
         var result = new List<string>();
