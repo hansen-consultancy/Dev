@@ -58,7 +58,7 @@ public sealed class FrontendEnvironmentTests
         var written = fs.GetWritten(System.IO.Path.Combine(Repo, "build-frontend.sh"));
         Assert.NotNull(written);
         Assert.Contains("#!/usr/bin/env bash", written);
-        Assert.Contains("cd repo/", written); // folder name from /repo
+        Assert.Contains("cd \"repo/\"", written); // folder name from /repo, quoted for spaces
         Assert.DoesNotContain("\r\n", written); // CRLF normalized
     }
 
@@ -140,6 +140,47 @@ public sealed class FrontendEnvironmentTests
     }
 
     [Fact]
+    public void Workspace_path_with_trailing_separator_yields_non_empty_folder_name()
+    {
+        var fs = new FakeFileSystem().WithDir("/repo/");
+        var env = new FrontendEnvironment();
+
+        env.Prepare("/repo/", Opts(fs, autoYes: true));
+
+        var written = fs.GetWritten("/repo/build-frontend.sh");
+        Assert.NotNull(written);
+        Assert.Contains("cd \"repo/\"", written); // not `cd "/"`
+    }
+
+    [Fact]
+    public void Existing_gitattributes_without_trailing_newline_appends_cleanly()
+    {
+        var fs = new FakeFileSystem()
+            .WithFile("/repo/build-frontend.sh", "#!/bin/bash\n")
+            .WithFile("/repo/.gitattributes", "* text=auto"); // no trailing newline
+        var env = new FrontendEnvironment();
+
+        env.Prepare(Repo, Opts(fs));
+
+        var written = fs.GetWritten("/repo/.gitattributes");
+        Assert.Equal("* text=auto\n*.sh text eol=lf\n", written);
+    }
+
+    [Fact]
+    public void Existing_gitattributes_with_trailing_newline_does_not_double_up()
+    {
+        var fs = new FakeFileSystem()
+            .WithFile("/repo/build-frontend.sh", "#!/bin/bash\n")
+            .WithFile("/repo/.gitattributes", "* text=auto\n");
+        var env = new FrontendEnvironment();
+
+        env.Prepare(Repo, Opts(fs));
+
+        var written = fs.GetWritten("/repo/.gitattributes");
+        Assert.Equal("* text=auto\n*.sh text eol=lf\n", written);
+    }
+
+    [Fact]
     public void DryRun_produces_full_mutations_list_with_zero_writes()
     {
         var fs = new FakeFileSystem().WithDir(Repo);
@@ -172,10 +213,28 @@ public sealed class FrontendBuildTests
         Assert.Equal(0, outcome.ExitCode);
         Assert.Equal("ghcr.io/example/builder:latest", outcome.Image);
         var spec = Assert.Single(runner.Invocations);
-        Assert.Contains("docker run --rm", spec.DisplayCommandLine);
-        Assert.Contains("-v \"/work/dir:/src\"", spec.DisplayCommandLine);
-        Assert.Contains("-w /src", spec.DisplayCommandLine);
-        Assert.Contains("ghcr.io/example/builder:latest", spec.DisplayCommandLine);
+        Assert.Equal("docker", spec.FileName);
+        Assert.NotNull(spec.ArgList);
+        Assert.Equal(
+            new[] { "run", "--rm", "-v", "/work/dir:/src", "-w", "/src", "ghcr.io/example/builder:latest" },
+            spec.ArgList);
+    }
+
+    [Fact]
+    public void Run_passes_workspace_path_with_shell_metacharacters_verbatim()
+    {
+        // Hardens against shell injection: workspacePath is supplied by the caller
+        // (current working dir) and may contain characters that would break out of
+        // a `bash -c "docker run ..."` wrapper. The argv path bypasses the shell.
+        var runner = new FakeProcessRunner();
+        var build = new FrontendBuild();
+        var malicious = "/tmp/path with $(spaces);rm -rf .";
+
+        build.Run(malicious, new BuildOptions("img:latest", runner, new RunContext()));
+
+        var spec = Assert.Single(runner.Invocations);
+        Assert.NotNull(spec.ArgList);
+        Assert.Contains($"{malicious}:/src", spec.ArgList!);
     }
 
     [Fact]
