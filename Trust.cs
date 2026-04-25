@@ -9,6 +9,7 @@
 //
 // STRIDE pivot: T1, E1, E4 — see STRIDE.md.
 
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Spectre.Console;
@@ -138,6 +139,16 @@ internal sealed class FileSystemTrustStore : ITrustStore
     public const int CurrentSchemaVersion = 1;
     private static readonly TimeSpan LockTimeout = TimeSpan.FromSeconds(10);
 
+    // Filesystem path semantics differ across OSes: Windows treats paths
+    // case-insensitively (NTFS default, ReFS), so `C:\Repo\commands.json` and
+    // `c:\repo\commands.json` resolve to the same file and must hash to the
+    // same trust entry. POSIX paths are case-sensitive on default Linux ext4
+    // and on macOS where case-sensitive APFS is used; conservatively match
+    // case there. macOS default APFS is case-insensitive but there is no
+    // reliable runtime probe, so we err on the side of stricter matching.
+    private static StringComparer PathComparer =>
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
     private readonly string _trustFile;
     private readonly string _lockFile;
 
@@ -161,9 +172,10 @@ internal sealed class FileSystemTrustStore : ITrustStore
             var doc = JsonSerializer.Deserialize<TrustFileDoc>(File.ReadAllText(_trustFile));
             if (doc is null)
                 return Empty();
-            return new TrustStoreSnapshot(
-                doc.SchemaVersion,
-                doc.TrustedConfigs ?? new Dictionary<string, string>());
+            var configs = new Dictionary<string, string>(PathComparer);
+            if (doc.TrustedConfigs is not null)
+                foreach (var kvp in doc.TrustedConfigs) configs[kvp.Key] = kvp.Value;
+            return new TrustStoreSnapshot(doc.SchemaVersion, configs);
         }
         catch
         {
@@ -181,10 +193,9 @@ internal sealed class FileSystemTrustStore : ITrustStore
         // Re-read under the lock so we don't lose entries written by another
         // process between our snapshot and our commit.
         var current = Read();
-        var updated = new Dictionary<string, string>(current.TrustedConfigs)
-        {
-            [fullPath] = contentHash,
-        };
+        var updated = new Dictionary<string, string>(PathComparer);
+        foreach (var kvp in current.TrustedConfigs) updated[kvp.Key] = kvp.Value;
+        updated[fullPath] = contentHash;
 
         var doc = new TrustFileDoc
         {
@@ -202,14 +213,17 @@ internal sealed class FileSystemTrustStore : ITrustStore
 
     private FileStream AcquireLock()
     {
-        var deadline = DateTime.UtcNow + LockTimeout;
+        // Stopwatch is monotonic, so a system-clock adjustment during the wait
+        // (NTP step, manual change) cannot prematurely terminate or extend the
+        // lock attempt the way DateTime.UtcNow can.
+        var watch = Stopwatch.StartNew();
         while (true)
         {
             try
             {
                 return new FileStream(_lockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             }
-            catch (IOException) when (DateTime.UtcNow < deadline)
+            catch (IOException) when (watch.Elapsed < LockTimeout)
             {
                 Thread.Sleep(50);
             }
@@ -217,7 +231,7 @@ internal sealed class FileSystemTrustStore : ITrustStore
     }
 
     private static TrustStoreSnapshot Empty() =>
-        new(CurrentSchemaVersion, new Dictionary<string, string>());
+        new(CurrentSchemaVersion, new Dictionary<string, string>(PathComparer));
 
     private sealed class TrustFileDoc
     {

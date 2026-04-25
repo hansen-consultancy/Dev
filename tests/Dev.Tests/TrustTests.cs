@@ -307,6 +307,29 @@ public sealed class FileSystemTrustStoreTests : IDisposable
         Assert.Equal(FileSystemTrustStore.CurrentSchemaVersion,
                      doc.GetProperty("SchemaVersion").GetInt32());
     }
+
+    [Fact]
+    public void Path_lookups_match_case_per_OS_filesystem_semantics()
+    {
+        // Windows paths are case-insensitive: a user who initially approves
+        // `C:\Repo\commands.json` should not be re-prompted for the same file
+        // surfaced as `c:\repo\commands.json` by a different code path.
+        var store = new FileSystemTrustStore(_trustFile);
+        store.Commit("/Repo/Commands.json", "hash-a");
+
+        var snapshot = new FileSystemTrustStore(_trustFile).Read();
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.True(snapshot.TrustedConfigs.ContainsKey("/repo/commands.json"));
+            Assert.True(snapshot.TrustedConfigs.ContainsKey("/REPO/COMMANDS.JSON"));
+            Assert.Equal("hash-a", snapshot.TrustedConfigs["/repo/commands.json"]);
+        }
+        else
+        {
+            Assert.True(snapshot.TrustedConfigs.ContainsKey("/Repo/Commands.json"));
+            Assert.False(snapshot.TrustedConfigs.ContainsKey("/repo/commands.json"));
+        }
+    }
 }
 
 public sealed class TrustGateOrchestratorHashingTests
