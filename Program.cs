@@ -11,8 +11,6 @@ using Microsoft.VisualStudio.SolutionPersistence.Model;
 using Microsoft.VisualStudio.SolutionPersistence.Serializer;
 using Spectre.Console;
 
-const int StderrTailLines = 50;
-
 var argList = args.ToList();
 var jsonMode = argList.Remove("--json");
 var autoYes = argList.Remove("--yes") || argList.Remove("-y");
@@ -267,27 +265,25 @@ static StepResult RunCustomCommand(CommandsConfigEntry cfg, string? slnFile, str
     }
 
     cmdLine = ReplaceVariables(cmdLine, slnFile, csprojFile, path);
-    var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-    var shell = isWindows ? "cmd" : "bash";
-    var (file, procArgs) = isWindows ? ("cmd.exe", $"/c {cmdLine}") : ("bash", $"-c \"{cmdLine}\"");
-    var (exit, errTail, outTail) = RunProcess(file, procArgs, ctx);
+    var spec = ProcSpec.Shell(cmdLine);
+    var result = Runner.Run(spec, ctx);
 
     step.Data = new Dictionary<string, object?>
     {
         ["source"] = "config",
         ["name"] = cfg.Name,
         ["commandLine"] = cmdLine,
-        ["shell"] = shell,
-        ["exitCode"] = exit,
-        ["stderrTail"] = exit != 0 ? errTail : null,
-        ["stdoutTail"] = exit != 0 ? outTail : null,
+        ["shell"] = spec.DisplayShell,
+        ["exitCode"] = result.ExitCode,
+        ["stderrTail"] = result.Ok ? null : result.StderrTail,
+        ["stdoutTail"] = result.Ok ? null : result.StdoutTail,
     };
 
-    if (exit != 0)
+    if (!result.Ok)
     {
         step.Status = "failed";
         step.ExitCode = 1;
-        step.Error = new StepError { Code = "custom_command_failed", Message = $"Custom command '{cfg.Name}' exited with code {exit}" };
+        step.Error = new StepError { Code = "custom_command_failed", Message = $"Custom command '{cfg.Name}' exited with code {result.ExitCode}" };
     }
     return step;
 }
@@ -325,7 +321,7 @@ static StepResult RunBumpCommit(string? slnFile, string? csprojFile, string[] co
         if (r.Bumped && r.To != null)
         {
             newVersions.Add(r.To);
-            RunProcess("git", $"add \"{projectPath}\"", ctx);
+            Runner.Run(ProcSpec.Exec("git", $"add \"{projectPath}\""), ctx);
         }
     }
 
@@ -357,34 +353,28 @@ static StepResult RunBumpCommit(string? slnFile, string? csprojFile, string[] co
         {
             var nv = newVersions.First();
             ctx.Log($"[green]Committing and tagging version {nv}...[/]");
-            var (commitExit, commitErr, commitOut) = RunProcess("git", $"commit -m \"build: {nv}\"", ctx);
-            var (tagExit, tagErr, tagOut) = RunProcess("git", $"tag {nv}", ctx);
-            if (commitExit == 0 && tagExit == 0)
+            if (Runner.RunOrFail(ProcSpec.Exec("git", $"commit -m \"build: {nv}\""),
+                                 step, ctx, "git_failed", "git commit failed", out var commit)
+              & Runner.RunOrFail(ProcSpec.Exec("git", $"tag {nv}"),
+                                 step, ctx, "git_failed", "git tag failed", out var tag))
             {
                 gitInfo = new Dictionary<string, object?> { ["committed"] = true, ["tag"] = nv, ["message"] = $"build: {nv}" };
             }
             else
             {
-                step.Status = "failed";
-                step.ExitCode = 1;
-                step.Error = new StepError
+                step.Error!.Detail = new Dictionary<string, object?>
                 {
-                    Code = "git_failed",
-                    Message = "git commit/tag failed",
-                    Detail = new Dictionary<string, object?>
-                    {
-                        ["commitExitCode"] = commitExit,
-                        ["tagExitCode"] = tagExit,
-                        ["stderrTail"] = commitErr.Concat(tagErr).ToArray(),
-                        ["stdoutTail"] = commitOut.Concat(tagOut).ToArray(),
-                    },
+                    ["commitExitCode"] = commit.ExitCode,
+                    ["tagExitCode"] = tag.ExitCode,
+                    ["stderrTail"] = commit.StderrTail.Concat(tag.StderrTail).ToArray(),
+                    ["stdoutTail"] = commit.StdoutTail.Concat(tag.StdoutTail).ToArray(),
                 };
                 gitInfo = new Dictionary<string, object?>
                 {
                     ["committed"] = false,
                     ["reason"] = "git_failed",
-                    ["commitExitCode"] = commitExit,
-                    ["tagExitCode"] = tagExit,
+                    ["commitExitCode"] = commit.ExitCode,
+                    ["tagExitCode"] = tag.ExitCode,
                 };
             }
             break;
@@ -397,20 +387,20 @@ static StepResult RunBumpCommit(string? slnFile, string? csprojFile, string[] co
 
 static StepResult RunBuild(string buildTarget, StepResult step, RunContext ctx)
 {
-    var (builder, exit, errTail, outTail) = BuildSolutionOrProject(buildTarget, ctx);
+    var (builder, result) = BuildSolutionOrProject(buildTarget, ctx);
     step.Data = new Dictionary<string, object?>
     {
         ["target"] = buildTarget,
         ["builder"] = builder,
-        ["builderExitCode"] = exit,
-        ["stderrTail"] = exit != 0 ? errTail : null,
-        ["stdoutTail"] = exit != 0 ? outTail : null,
+        ["builderExitCode"] = result.ExitCode,
+        ["stderrTail"] = result.Ok ? null : result.StderrTail,
+        ["stdoutTail"] = result.Ok ? null : result.StdoutTail,
     };
-    if (exit != 0)
+    if (!result.Ok)
     {
         step.Status = "failed";
         step.ExitCode = 1;
-        step.Error = new StepError { Code = "builder_failed", Message = $"Builder exited with code {exit}" };
+        step.Error = new StepError { Code = "builder_failed", Message = $"Builder exited with code {result.ExitCode}" };
     }
     return step;
 }
@@ -569,9 +559,7 @@ static StepResult RunFrontend(string path, StepResult step, RunContext ctx)
 
     const string dockerImage = "ghcr.io/stevehansen/vidyano-frontend-builder:latest";
     var dockerCommand = $"docker run --rm -v \"{path}:/src\" -w /src {dockerImage}";
-    var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-    var (file, procArgs) = isWindows ? ("cmd.exe", $"/c {dockerCommand}") : ("bash", $"-c \"{dockerCommand}\"");
-    var (exit, errTail, outTail) = RunProcess(file, procArgs, ctx);
+    var result = Runner.Run(ProcSpec.Shell(dockerCommand), ctx);
 
     step.Data = new Dictionary<string, object?>
     {
@@ -579,16 +567,16 @@ static StepResult RunFrontend(string path, StepResult step, RunContext ctx)
         ["docker"] = new Dictionary<string, object?>
         {
             ["image"] = dockerImage,
-            ["exitCode"] = exit,
-            ["stderrTail"] = exit != 0 ? errTail : null,
-            ["stdoutTail"] = exit != 0 ? outTail : null,
+            ["exitCode"] = result.ExitCode,
+            ["stderrTail"] = result.Ok ? null : result.StderrTail,
+            ["stdoutTail"] = result.Ok ? null : result.StdoutTail,
         },
     };
-    if (exit != 0)
+    if (!result.Ok)
     {
         step.Status = "failed";
         step.ExitCode = 1;
-        step.Error = new StepError { Code = "docker_failed", Message = $"Docker exited with code {exit}" };
+        step.Error = new StepError { Code = "docker_failed", Message = $"Docker exited with code {result.ExitCode}" };
     }
     return step;
 }
@@ -626,18 +614,16 @@ static ProjectBumpResult BumpProjectVersion(string projectPath, string part, Run
     return new ProjectBumpResult(projectPath, version, newVersion.ToString(), true, null);
 }
 
-static (string Builder, int ExitCode, string[] StderrTail, string[] StdoutTail) BuildSolutionOrProject(string buildTarget, RunContext ctx)
+static (string Builder, ProcRunResult Result) BuildSolutionOrProject(string buildTarget, RunContext ctx)
 {
     var buildFile = Path.Combine(Path.GetDirectoryName(buildTarget) ?? ".", RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "build.cmd" : "build.sh");
     if (File.Exists(buildFile))
     {
         ctx.Log($"[green]Building[/] {Path.GetFileName(buildTarget)} [green]using[/] {Path.GetFileName(buildFile)}[green]...[/]");
-        var (exit, errTail, outTail) = RunProcess(buildFile, "", ctx);
-        return (Path.GetFileName(buildFile), exit, errTail, outTail);
+        return (Path.GetFileName(buildFile), Runner.Run(ProcSpec.Exec(buildFile, ""), ctx));
     }
     ctx.Log($"[green]Building[/] {Path.GetFileName(buildTarget)} [green]in Release mode...[/]");
-    var (dExit, dErrTail, dOutTail) = RunProcess("dotnet", $"build \"{buildTarget}\" -c Release", ctx);
-    return ("dotnet", dExit, dErrTail, dOutTail);
+    return ("dotnet", Runner.Run(ProcSpec.Exec("dotnet", $"build \"{buildTarget}\" -c Release"), ctx));
 }
 
 static bool IsInGitSubmodule(string filePath)
@@ -727,59 +713,6 @@ static string? FindSolutionFile(string searchPath)
 static string? FindProjectFile(string searchPath)
 {
     return Directory.GetFiles(searchPath, "*.csproj").FirstOrDefault();
-}
-
-static (int ExitCode, string[] StderrTail, string[] StdoutTail) RunProcess(string fileName, string procArgs, RunContext ctx, int tailLines = StderrTailLines)
-{
-    var psi = new ProcessStartInfo(fileName, procArgs)
-    {
-        UseShellExecute = false,
-        RedirectStandardError = true,
-        RedirectStandardOutput = ctx.JsonMode,
-    };
-
-    using var p = new Process { StartInfo = psi };
-    var errBuffer = new Queue<string>();
-    var outBuffer = new Queue<string>();
-    var bufferLock = new object();
-
-    p.ErrorDataReceived += (_, e) =>
-    {
-        if (e.Data is null) return;
-        lock (bufferLock)
-        {
-            if (!ctx.JsonMode) Console.Error.WriteLine(e.Data);
-            errBuffer.Enqueue(e.Data);
-            while (errBuffer.Count > tailLines) errBuffer.Dequeue();
-        }
-    };
-    if (ctx.JsonMode)
-    {
-        p.OutputDataReceived += (_, e) =>
-        {
-            if (e.Data is null) return;
-            lock (bufferLock)
-            {
-                outBuffer.Enqueue(e.Data);
-                while (outBuffer.Count > tailLines) outBuffer.Dequeue();
-            }
-        };
-    }
-
-    try
-    {
-        p.Start();
-    }
-    catch (Exception ex)
-    {
-        if (!ctx.JsonMode) AnsiConsole.WriteException(ex);
-        return (-1, new[] { ex.Message }, Array.Empty<string>());
-    }
-
-    p.BeginErrorReadLine();
-    if (ctx.JsonMode) p.BeginOutputReadLine();
-    p.WaitForExit();
-    lock (bufferLock) return (p.ExitCode, errBuffer.ToArray(), outBuffer.ToArray());
 }
 
 static object BuildHelpData(List<CommandsConfigEntry>? configCommands)
@@ -984,6 +917,8 @@ partial class Program
 {
     [GeneratedRegex("<Version>(?<version>.*)</Version>")]
     private static partial Regex VersionRegex();
+
+    internal static IProcessRunner Runner { get; set; } = new RealProcessRunner();
 }
 
 internal sealed class CommandsConfigEntry
