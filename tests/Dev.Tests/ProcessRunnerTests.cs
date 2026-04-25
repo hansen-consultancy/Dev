@@ -132,24 +132,25 @@ public sealed class RunOrFailTests
     }
 
     [Fact]
-    public void Combined_non_short_circuit_runs_both_calls_even_when_first_fails()
+    public void Short_circuit_skips_second_call_and_preserves_first_call_error()
     {
+        // Production callers chain RunOrFail with `&&` so a failed first call
+        // does not run the second AND step.Error keeps the first call's code +
+        // message instead of being clobbered by the second call.
         var runner = new FakeProcessRunner();
         runner.Enqueue(new ProcRunResult(1, new[] { "commit err" }, new[] { "commit out" }, "exec", "git commit"));
         runner.Enqueue(new ProcRunResult(1, new[] { "tag err" }, new[] { "tag out" }, "exec", "git tag"));
         var step = new StepResult { Command = "bump-commit" };
         var ctx = new RunContext();
 
-        var bothOk = runner.RunOrFail(ProcSpec.Exec("git", "commit"), step, ctx, "git_failed", "git commit failed", out var commit)
-                   & runner.RunOrFail(ProcSpec.Exec("git", "tag"), step, ctx, "git_failed", "git tag failed", out var tag);
+        var bothOk = runner.RunOrFail(ProcSpec.Exec("git", "commit"), step, ctx, "git_commit_failed", "git commit failed", out var commit)
+                  && runner.RunOrFail(ProcSpec.Exec("git", "tag"), step, ctx, "git_tag_failed", "git tag failed", out _);
 
         Assert.False(bothOk);
-        Assert.Equal(2, runner.Invocations.Count);
+        Assert.Single(runner.Invocations); // tag was skipped
         Assert.Equal(1, commit.ExitCode);
-        Assert.Equal(1, tag.ExitCode);
-
-        var combinedErr = commit.StderrTail.Concat(tag.StderrTail).ToArray();
-        Assert.Equal(new[] { "commit err", "tag err" }, combinedErr);
+        Assert.Equal("git_commit_failed", step.Error!.Code);
+        Assert.Equal("git commit failed", step.Error.Message);
     }
 }
 
