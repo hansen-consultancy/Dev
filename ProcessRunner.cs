@@ -15,16 +15,22 @@ internal readonly record struct ProcSpec(
     string Arguments,
     string DisplayShell,
     string DisplayCommandLine,
-    int TailLines = 50)
+    int TailLines = 50,
+    IReadOnlyList<string>? ArgList = null)
 {
     public static ProcSpec Exec(string file, string args, int tail = 50)
         => new(file, args, "exec",
                string.IsNullOrEmpty(args) ? file : $"{file} {args}", tail);
 
+    public static ProcSpec ExecArgs(string file, IReadOnlyList<string> args, int tail = 50)
+        => new(file, string.Empty, "exec",
+               args.Count == 0 ? file : $"{file} {string.Join(' ', args)}",
+               tail, args);
+
     public static ProcSpec Shell(string commandLine, int tail = 50)
         => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? new("cmd.exe", $"/c {commandLine}", "cmd", commandLine, tail)
-            : new("bash", $"-c \"{commandLine}\"", "bash", commandLine, tail);
+            ? new("cmd.exe", string.Empty, "cmd", commandLine, tail, new[] { "/S", "/C", commandLine })
+            : new("bash", string.Empty, "bash", commandLine, tail, new[] { "-c", commandLine });
 }
 
 internal sealed record ProcRunResult(
@@ -41,12 +47,16 @@ internal sealed class RealProcessRunner : IProcessRunner
 {
     public ProcRunResult Run(ProcSpec spec, RunContext ctx)
     {
-        var psi = new ProcessStartInfo(spec.FileName, spec.Arguments)
+        var psi = new ProcessStartInfo(spec.FileName)
         {
             UseShellExecute = false,
             RedirectStandardError = true,
             RedirectStandardOutput = ctx.JsonMode,
         };
+        if (spec.ArgList is { Count: > 0 } argList)
+            foreach (var a in argList) psi.ArgumentList.Add(a);
+        else
+            psi.Arguments = spec.Arguments;
 
         using var p = new Process { StartInfo = psi };
         var errBuffer = new Queue<string>();
