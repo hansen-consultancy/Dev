@@ -4,12 +4,13 @@
 > **Date:** 2026-04-25
 > **Scope:** The `dev` .NET global tool, its configuration files, and its interactions with the local system.
 
-> **v1.13.0 note:** Three architectural refactors land in this version, all behavior-preserving:
+> **v1.13.0 note:** Four architectural refactors land in this version, all behavior-preserving:
 > 1. Child-process execution extracted into `ProcessRunner.cs` (`IProcessRunner`, `ProcSpec`, `ProcRunResult`, `RealProcessRunner`).
 > 2. Version-bump split into pure `SemVer` math, an `IProjectVersionFile` file-mutation port (`CsprojVersionFile` owns the `<Version>` regex), an `IGitPort` (`ProcessGitPort` rides on `IProcessRunner`), and a `BumpPipeline` orchestrator that owns the cross-project version-agreement invariant and the commit-then-tag sequencing.
 > 3. `sln`/`csproj`/`src/`/`dev.json` discovery collapsed into a `Workspace` value object with internal `IFileSystem` and `ISolutionReader` seams. `Workspace.Discover` owns submodule detection, ignore-list filtering, `.sln` vs `.slnx` precedence, the `src/` fallback, and parent-directory `dev.json` inheritance.
+> 4. `frontend` command split into `FrontendEnvironment` (scaffolding `build-frontend.sh` from a private template, CRLF→LF normalization, `.gitattributes` patching, and the `(AutoYes × JsonMode × required)` prompt matrix) and `FrontendBuild` (docker invocation via `IProcessRunner`). An `IConfirmationPrompt` port replaces direct Spectre prompts inside the module.
 >
-> No threat severities change. Affected-component references for T2, T3, T4, R1, D2, etc. now point at the new files where the relevant code lives.
+> No threat severities change. Affected-component references for T2, T3, T4, I1, R1, D2, etc. now point at the new files where the relevant code lives.
 
 ## Overview
 
@@ -41,7 +42,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 |---|--------|--------------------|----------|------------|
 | S1 | **Malicious `commands.json` in cloned repo** — An attacker commits a crafted `commands.json` to a repository. When a developer runs `dev`, arbitrary commands execute under their identity. | `Program.cs:RunCustomCommand` → `ProcessRunner.cs:RealProcessRunner` (via `ProcSpec.Shell` → `cmd.exe /c` or `bash -c`) | **High** → **Mitigated** | **Mitigated in v1.12.0:** A hash-based trust system (`VerifyCommandsTrust`) now blocks execution of any `commands.json` that has not been explicitly approved by the user. On first encounter or when the file changes, the tool displays a warning, shows a summary of all commands (including shell commands that would run), and requires explicit confirmation (defaulting to "no"). Approved configs are recorded by full path and SHA-256 hash in `%APPDATA%/hc-dev/trust.json`. Residual risk: a user may approve a malicious config without carefully reading the summary. |
 | S2 | **Malicious NuGet package substitution** — An attacker publishes a package with a similar name (typosquatting `HC.Dev`) to execute malicious code when installed. | NuGet distribution | **Medium** → **Mitigated** | **Mitigated in v1.11.0:** NuGet trusted publishing workflow added to CI, ensuring only verified builds from the official repository can publish the package. The package uses a scoped ID (`HC.Dev`) with a specific `ToolCommandName`. Residual risk: typosquatting with a different package ID remains possible but is outside the project's control. |
-| S3 | **Docker image spoofing** — If the Docker registry or user's Docker config is compromised, a malicious image could replace `ghcr.io/stevehansen/vidyano-frontend-builder:latest`. | `Program.cs:RunFrontend` (~line 560) — Docker run command | **Medium** | Consider pinning the Docker image to a specific digest rather than `:latest`. Ensure the GitHub Container Registry package has appropriate access controls. |
+| S3 | **Docker image spoofing** — If the Docker registry or user's Docker config is compromised, a malicious image could replace `ghcr.io/stevehansen/vidyano-frontend-builder:latest`. | `Frontend.cs:FrontendBuild.Run` — Docker run command; image identity is hardcoded at the `Program.cs:RunFrontend` composition site | **Medium** | Consider pinning the Docker image to a specific digest rather than `:latest`. Ensure the GitHub Container Registry package has appropriate access controls. |
 
 ---
 
@@ -69,7 +70,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 
 | # | Threat | Affected Component | Severity | Mitigation |
 |---|--------|--------------------|----------|------------|
-| I1 | **Source code exposed via Docker volume mount** — The `frontend` command mounts the entire working directory into a Docker container (`-v "{path}:/src"`). If the Docker image is compromised, all source code is accessible. | `Program.cs:RunFrontend` (~line 561) | **Medium** | The volume mount exposes the full working directory. Consider mounting only the necessary subdirectory if possible. Users should verify the Docker image integrity. |
+| I1 | **Source code exposed via Docker volume mount** — The `frontend` command mounts the entire working directory into a Docker container (`-v "{path}:/src"`). If the Docker image is compromised, all source code is accessible. | `Frontend.cs:FrontendBuild.Run` (docker argv composition); `Program.cs:RunFrontend` (composition) | **Medium** | The volume mount exposes the full working directory. Consider mounting only the necessary subdirectory if possible. Users should verify the Docker image integrity. |
 | I2 | **Exception details displayed to console** — Exceptions from config file parsing (and a child-process start failure) are written to the console via `AnsiConsole.WriteException`, which may reveal file paths and internal details. | `Program.cs:52` (commands.json parse), `Program.cs:73` (workspace discovery error — surfaces dev.json parse failure from `Workspace.cs`), `Program.cs:375` (clean failure), `ProcessRunner.cs:RealProcessRunner` (start-failure path) | **Low** | This is a developer tool and the output is only visible to the local user. No sensitive data beyond file paths is exposed. |
 | I3 | **Version and git info in banner** — The tool displays its version and git commit hash on every run. | `Program.cs:28-29` | **Informational** | This is intentional and useful. No action needed. |
 

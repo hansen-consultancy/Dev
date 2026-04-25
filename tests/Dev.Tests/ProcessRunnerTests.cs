@@ -124,18 +124,3 @@ public sealed class RunOrFailTests
     }
 }
 
-internal sealed class FakeProcessRunner : IProcessRunner
-{
-    private readonly Queue<ProcRunResult> _responses = new();
-
-    public List<ProcSpec> Invocations { get; } = new();
-
-    public void Enqueue(ProcRunResult result) => _responses.Enqueue(result);
-
-    public ProcRunResult Run(ProcSpec spec, RunContext ctx)
-    {
-        Invocations.Add(spec);
-        if (_responses.Count > 0) return _responses.Dequeue();
-        return new ProcRunResult(0, Array.Empty<string>(), Array.Empty<string>(), spec.DisplayShell, spec.DisplayCommandLine);
-    }
-}
