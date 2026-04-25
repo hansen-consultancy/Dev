@@ -29,7 +29,14 @@ internal sealed partial class CsprojVersionFile : IProjectVersionFile
             return new ProjectVersionRead(projectPath, true, null, null, "no_version_tag");
 
         var raw = match.Groups["version"].Value;
-        return new ProjectVersionRead(projectPath, true, raw, new SemVer(raw), null);
+        try
+        {
+            return new ProjectVersionRead(projectPath, true, raw, new SemVer(raw), null);
+        }
+        catch (FormatException)
+        {
+            return new ProjectVersionRead(projectPath, true, raw, null, "malformed_version");
+        }
     }
 
     public void Write(string projectPath, SemVer newVersion)
@@ -103,6 +110,7 @@ internal sealed record GitOutcome(
     bool Committed,
     string? Tag,
     string? Reason,
+    string? Message = null,
     int? CommitExit = null,
     int? TagExit = null,
     string[]? StderrTail = null,
@@ -123,46 +131,66 @@ internal sealed class BumpPipeline
 
     public BumpOutcome Execute(BumpPlan plan)
     {
-        var results = new List<ProjectBumpResult>();
+        // Phase 1 (pure): read every project, compute the new version. No writes,
+        // no git side-effects yet — so the cross-project agreement invariant can
+        // be checked before any disk state changes.
+        var planned = new List<PlannedBump>(plan.Projects.Count);
         var newVersions = new HashSet<string>();
-
         foreach (var c in plan.Projects)
+            planned.Add(PlanOne(c, plan.Spec, newVersions));
+
+        // Phase 2: invariant gate. If projects disagree, abort BEFORE writing.
+        if (newVersions.Count > 1)
         {
-            if (!c.Include)
+            _log?.Invoke("[red]Multiple versions found to bump. Please commit them separately.[/]");
+            var aborted = planned.Select(p => p.Bumped is not null
+                ? new ProjectBumpResult(p.Cand.Path, p.Read.RawVersion, p.Bumped.ToString(), false, "multiple_versions_blocked")
+                : new ProjectBumpResult(p.Cand.Path, null, null, false, p.Reason)).ToList();
+            return new BumpOutcome(aborted, new GitOutcome(false, null, "multiple_versions"));
+        }
+
+        // Phase 3: apply (write + stage). Safe now — invariant holds.
+        var results = new List<ProjectBumpResult>(planned.Count);
+        foreach (var p in planned)
+        {
+            if (p.Bumped is null)
             {
-                results.Add(new ProjectBumpResult(c.Path, null, null, false, c.SkipReason));
+                results.Add(new ProjectBumpResult(p.Cand.Path, null, null, false, p.Reason));
                 continue;
             }
-
-            var read = _files.Read(c.Path);
-            if (!read.Exists)
-            {
-                _log?.Invoke($"[red]Project {Path.GetFileNameWithoutExtension(c.Path)} not found, skipping.[/]");
-                results.Add(new ProjectBumpResult(c.Path, null, null, false, "not_found"));
-                continue;
-            }
-            if (read.Version is null)
-            {
-                _log?.Invoke($"[red]No version found in {Path.GetFileNameWithoutExtension(c.Path)}.[/]");
-                results.Add(new ProjectBumpResult(c.Path, null, null, false, "no_version_tag"));
-                continue;
-            }
-
-            var bumped = read.Version.Bump(plan.Spec);
-            var bumpedStr = bumped.ToString();
-            _log?.Invoke($"[green]Bumping[/] {Path.GetFileNameWithoutExtension(c.Path)} [green]from[/] [blue]{read.RawVersion}[/] [green]to[/] [yellow]{bumpedStr}[/]");
-
+            var bumpedStr = p.Bumped.ToString();
+            _log?.Invoke($"[green]Bumping[/] {Path.GetFileNameWithoutExtension(p.Cand.Path)} [green]from[/] [blue]{p.Read.RawVersion}[/] [green]to[/] [yellow]{bumpedStr}[/]");
             if (!plan.Options.DryRun)
-                _files.Write(c.Path, bumped);
-
-            results.Add(new ProjectBumpResult(c.Path, read.RawVersion, bumpedStr, true, null));
-            newVersions.Add(bumpedStr);
-
+                _files.Write(p.Cand.Path, p.Bumped);
+            results.Add(new ProjectBumpResult(p.Cand.Path, p.Read.RawVersion, bumpedStr, true, null));
             if (plan.Options.StageChanges && !plan.Options.DryRun)
-                _git.Add(c.Path);
+                _git.Add(p.Cand.Path);
         }
 
         return new BumpOutcome(results, ResolveGit(plan, newVersions));
+    }
+
+    private PlannedBump PlanOne(ProjectCandidate c, BumpSpec spec, HashSet<string> newVersions)
+    {
+        if (!c.Include)
+            return new PlannedBump(c, default, null, c.SkipReason);
+
+        var read = _files.Read(c.Path);
+        if (!read.Exists)
+        {
+            _log?.Invoke($"[red]Project {Path.GetFileNameWithoutExtension(c.Path)} not found, skipping.[/]");
+            return new PlannedBump(c, read, null, read.SkipReason ?? "not_found");
+        }
+        if (read.Version is null)
+        {
+            var reason = read.SkipReason ?? "no_version_tag";
+            _log?.Invoke($"[red]Cannot bump {Path.GetFileNameWithoutExtension(c.Path)} ({reason}).[/]");
+            return new PlannedBump(c, read, null, reason);
+        }
+
+        var bumped = read.Version.Bump(spec);
+        newVersions.Add(bumped.ToString());
+        return new PlannedBump(c, read, bumped, null);
     }
 
     private GitOutcome ResolveGit(BumpPlan plan, HashSet<string> newVersions)
@@ -175,35 +203,45 @@ internal sealed class BumpPipeline
             _log?.Invoke("[yellow]No versions found to bump.[/]");
             return new GitOutcome(false, null, "no_bump");
         }
-        if (newVersions.Count > 1)
-        {
-            _log?.Invoke("[red]Multiple versions found to bump. Please commit them separately.[/]");
-            return new GitOutcome(false, null, "multiple_versions");
-        }
 
         var nv = newVersions.First();
         var msg = plan.Options.CommitMessage?.Invoke(nv) ?? $"build: {nv}";
         _log?.Invoke($"[green]Committing and tagging version {nv}...[/]");
 
         if (plan.Options.DryRun)
-            return new GitOutcome(true, nv, null);
+            return new GitOutcome(true, nv, null, msg);
 
         var commit = plan.Options.Commit
             ? _git.Commit(msg)
             : (Exit: 0, Stderr: Array.Empty<string>(), Stdout: Array.Empty<string>());
+
+        // Short-circuit: if `git commit` fails, do not run `git tag`. Tagging
+        // would otherwise land on the previous commit, not the intended one.
+        if (commit.Exit != 0)
+        {
+            return new GitOutcome(
+                false, null, "git_commit_failed", msg,
+                commit.Exit, null,
+                commit.Stderr, commit.Stdout);
+        }
+
         var tag = plan.Options.Tag
             ? _git.Tag(nv)
             : (Exit: 0, Stderr: Array.Empty<string>(), Stdout: Array.Empty<string>());
 
-        if (commit.Exit == 0 && tag.Exit == 0)
-            return new GitOutcome(true, nv, null, commit.Exit, tag.Exit);
+        if (tag.Exit != 0)
+        {
+            return new GitOutcome(
+                true, null, "git_tag_failed", msg,
+                commit.Exit, tag.Exit,
+                tag.Stderr, tag.Stdout);
+        }
 
-        return new GitOutcome(
-            false, null, "git_failed",
-            commit.Exit, tag.Exit,
-            commit.Stderr.Concat(tag.Stderr).ToArray(),
-            commit.Stdout.Concat(tag.Stdout).ToArray());
+        return new GitOutcome(true, nv, null, msg, commit.Exit, tag.Exit);
     }
+
+    private readonly record struct PlannedBump(
+        ProjectCandidate Cand, ProjectVersionRead Read, SemVer? Bumped, string? Reason);
 }
 
 internal sealed record ProjectBumpResult(string Path, string? From, string? To, bool Bumped, string? Reason);
