@@ -2,7 +2,6 @@
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Dev;
@@ -57,8 +56,12 @@ if (File.Exists(configFile))
     }
 }
 
-if (configCommands is not null && !VerifyCommandsTrust(configFile, configCommands, ctx, envelope))
-    return Finish(envelope, ctx, runWatch);
+if (configCommands is not null)
+{
+    var gate = TrustGateFactory.ForProduction(envelope);
+    if (!gate.Authorize(configFile, configCommands, new TrustFlags(ctx.AutoYes, ctx.JsonMode)))
+        return Finish(envelope, ctx, runWatch);
+}
 
 Workspace? workspace;
 try
@@ -551,95 +554,6 @@ static void RenderHelpTable(List<CommandsConfigEntry>? configCommands)
     AnsiConsole.Write(table);
 }
 
-static bool VerifyCommandsTrust(string configFilePath, List<CommandsConfigEntry> commands, RunContext ctx, Envelope envelope)
-{
-    var content = File.ReadAllBytes(configFilePath);
-    var hash = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
-    var fullPath = Path.GetFullPath(configFilePath);
-
-    var trustDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "hc-dev");
-    var trustFile = Path.Combine(trustDir, "trust.json");
-
-    TrustStore store;
-    try
-    {
-        if (File.Exists(trustFile))
-            store = JsonSerializer.Deserialize<TrustStore>(File.ReadAllText(trustFile)) ?? new TrustStore();
-        else
-            store = new TrustStore();
-    }
-    catch
-    {
-        store = new TrustStore();
-    }
-
-    if (store.TrustedConfigs.TryGetValue(fullPath, out var trustedHash) && trustedHash == hash)
-        return true;
-
-    var isModified = store.TrustedConfigs.ContainsKey(fullPath);
-
-    if (!ctx.JsonMode)
-    {
-        AnsiConsole.MarkupLine(isModified
-            ? "[yellow]Warning:[/] The commands.json in this directory has been modified since you last approved it."
-            : "[yellow]Warning:[/] A custom commands.json was found in this directory.");
-        DisplayCommandSummary(commands);
-    }
-
-    bool accepted;
-    if (ctx.AutoYes)
-    {
-        accepted = true;
-    }
-    else if (ctx.JsonMode)
-    {
-        envelope.Error = new StepError
-        {
-            Code = "interaction_required",
-            Message = isModified
-                ? "commands.json has been modified since it was trusted; re-run with --yes to re-approve."
-                : "Untrusted commands.json; re-run with --yes to approve.",
-        };
-        envelope.ExitCode = 5;
-        return false;
-    }
-    else
-    {
-        accepted = AnsiConsole.Prompt(new ConfirmationPrompt("Do you want to trust this configuration?") { DefaultValue = false });
-    }
-
-    if (!accepted)
-    {
-        envelope.Error = new StepError { Code = "trust_rejected", Message = "User rejected commands.json trust." };
-        envelope.ExitCode = 5;
-        return false;
-    }
-
-    store.TrustedConfigs[fullPath] = hash;
-    Directory.CreateDirectory(trustDir);
-    File.WriteAllText(trustFile, JsonSerializer.Serialize(store, new JsonSerializerOptions { WriteIndented = true }));
-    return true;
-}
-
-static void DisplayCommandSummary(List<CommandsConfigEntry> commands)
-{
-    AnsiConsole.MarkupLine("\nThis configuration replaces the default commands with:");
-    foreach (var cmd in commands)
-    {
-        var label = $"[cyan]{cmd.Name}[/]";
-        if (cmd.Default) label += " (default)";
-
-        string detail;
-        if (!string.IsNullOrEmpty(cmd.BuiltIn))
-            detail = $"(built-in) {cmd.BuiltIn}";
-        else
-            detail = (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? cmd.Windows : cmd.NonWindows) ?? string.Empty;
-
-        AnsiConsole.MarkupLine($"  - {label}: {detail.EscapeMarkup()}");
-    }
-    AnsiConsole.WriteLine();
-}
-
 partial class Program
 {
     internal static IProcessRunner Runner { get; set; } = new RealProcessRunner();
@@ -660,11 +574,6 @@ internal sealed class CommandsConfigEntry
 internal sealed class DevConfig
 {
     public List<string>? IgnoreProjects { get; set; }
-}
-
-internal sealed class TrustStore
-{
-    public Dictionary<string, string> TrustedConfigs { get; set; } = new();
 }
 
 internal sealed class RunContext
