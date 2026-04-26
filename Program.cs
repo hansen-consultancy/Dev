@@ -6,8 +6,6 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Dev;
-using Microsoft.VisualStudio.SolutionPersistence.Model;
-using Microsoft.VisualStudio.SolutionPersistence.Serializer;
 using Spectre.Console;
 
 var argList = args.ToList();
@@ -62,51 +60,24 @@ if (File.Exists(configFile))
 if (configCommands is not null && !VerifyCommandsTrust(configFile, configCommands, ctx, envelope))
     return Finish(envelope, ctx, runWatch);
 
-var devConfigFile = Path.Combine(path, "dev.json");
-if (!File.Exists(devConfigFile))
+Workspace? workspace;
+try
 {
-    var parentPath = Directory.GetParent(path)?.FullName;
-    if (parentPath != null)
-    {
-        var parentConfigFile = Path.Combine(parentPath, "dev.json");
-        if (File.Exists(parentConfigFile))
-            devConfigFile = parentConfigFile;
-    }
+    workspace = Workspace.Discover(path, ctx.Log);
 }
-
-DevConfig? devConfig = null;
-if (File.Exists(devConfigFile))
+catch (WorkspaceDiscoveryException ex)
 {
-    try
+    if (!jsonMode)
     {
-        devConfig = JsonSerializer.Deserialize<DevConfig>(File.ReadAllText(devConfigFile), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        AnsiConsole.MarkupLine($"[red]{ex.Message}:[/]");
+        if (ex.InnerException is not null) AnsiConsole.WriteException(ex.InnerException);
     }
-    catch (Exception ex)
-    {
-        if (!jsonMode)
-        {
-            AnsiConsole.MarkupLine("[red]Error reading dev.json:[/]");
-            AnsiConsole.WriteException(ex);
-        }
-        envelope.Error = new StepError { Code = "config_parse_error", Message = "Error reading dev.json", Detail = ex.Message };
-        envelope.ExitCode = 4;
-        return Finish(envelope, ctx, runWatch);
-    }
+    envelope.Error = new StepError { Code = ex.Code, Message = ex.Message, Detail = ex.InnerException?.Message };
+    envelope.ExitCode = 4;
+    return Finish(envelope, ctx, runWatch);
 }
-
-var slnFile = FindSolutionFile(path);
-var csprojFile = FindProjectFile(path);
-if (slnFile == null && csprojFile == null)
-{
-    var srcDir = Path.Combine(path, "src");
-    if (Directory.Exists(srcDir))
-    {
-        slnFile = FindSolutionFile(srcDir);
-        csprojFile = FindProjectFile(srcDir);
-    }
-}
-envelope.Solution = slnFile;
-envelope.Project = csprojFile;
+envelope.Solution = workspace?.SolutionPath;
+envelope.Project = workspace?.ProjectPath;
 
 string commandInput;
 if (args.Length > 0)
@@ -126,7 +97,7 @@ for (int i = 0; i < commandTokens.Length; i++)
         AnsiConsole.MarkupLine($"[cyan]Executing command {i + 1}/{commandTokens.Length}: {cmd}[/]");
 
     var commandArgs = i == 0 ? args.Skip(1).ToArray() : Array.Empty<string>();
-    var step = ExecuteCommand(cmd, alias, commandArgs, path, slnFile, csprojFile, configCommands, devConfig, ctx);
+    var step = ExecuteCommand(cmd, alias, commandArgs, path, workspace, configCommands, ctx);
     envelope.Steps.Add(step);
 
     if (step.Status == "failed")
@@ -180,8 +151,7 @@ static (string Command, string? Alias) ResolveAlias(string input) => input switc
 
 static StepResult ExecuteCommand(
     string command, string? alias, string[] commandArgs, string path,
-    string? slnFile, string? csprojFile,
-    List<CommandsConfigEntry>? configCommands, DevConfig? devConfig,
+    Workspace? workspace, List<CommandsConfigEntry>? configCommands,
     RunContext ctx)
 {
     var step = new StepResult { Command = command, Alias = alias, Args = commandArgs };
@@ -202,7 +172,7 @@ static StepResult ExecuteCommand(
             if (cfgCmd is not null)
             {
                 if (string.IsNullOrEmpty(cfgCmd.BuiltIn))
-                    return RunCustomCommand(cfgCmd, slnFile, csprojFile, path, step, ctx);
+                    return RunCustomCommand(cfgCmd, workspace, path, step, ctx);
 
                 command = cfgCmd.BuiltIn;
                 step.Command = command;
@@ -220,7 +190,7 @@ static StepResult ExecuteCommand(
         if (command is "frontend") return RunFrontend(path, step, ctx);
         if (command is "clean") return RunClean(path, step, ctx);
 
-        if (slnFile == null && csprojFile == null)
+        if (workspace is null)
         {
             ctx.Log("[red]No .sln, .slnx or .csproj file found in the current directory or src/ folder.[/]");
             step.Status = "failed";
@@ -229,14 +199,12 @@ static StepResult ExecuteCommand(
             return step;
         }
 
-        var buildTarget = slnFile ?? csprojFile!;
-
         switch (command)
         {
-            case "bump": return RunBump(slnFile, csprojFile, commandArgs, devConfig, step, ctx);
-            case "bump-commit": return RunBumpCommit(slnFile, csprojFile, commandArgs, devConfig, step, ctx);
-            case "build": return RunBuild(buildTarget, step, ctx);
-            case "launch": return RunLaunch(slnFile, csprojFile, step, ctx);
+            case "bump": return RunBump(workspace, commandArgs, step, ctx);
+            case "bump-commit": return RunBumpCommit(workspace, commandArgs, step, ctx);
+            case "build": return RunBuild(workspace.BuildTarget, step, ctx);
+            case "launch": return RunLaunch(workspace, step, ctx);
             default:
                 ctx.Log($"[red]Unknown command: {command}[/]");
                 step.Status = "failed";
@@ -251,7 +219,7 @@ static StepResult ExecuteCommand(
     }
 }
 
-static StepResult RunCustomCommand(CommandsConfigEntry cfg, string? slnFile, string? csprojFile, string path, StepResult step, RunContext ctx)
+static StepResult RunCustomCommand(CommandsConfigEntry cfg, Workspace? workspace, string path, StepResult step, RunContext ctx)
 {
     var cmdLine = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? cfg.Windows : cfg.NonWindows;
     if (string.IsNullOrWhiteSpace(cmdLine))
@@ -263,7 +231,7 @@ static StepResult RunCustomCommand(CommandsConfigEntry cfg, string? slnFile, str
         return step;
     }
 
-    cmdLine = ReplaceVariables(cmdLine, slnFile, csprojFile, path);
+    cmdLine = ReplaceVariables(cmdLine, workspace?.SolutionPath, workspace?.ProjectPath, path);
     var spec = ProcSpec.Shell(cmdLine);
     var result = Runner.Run(spec, ctx);
 
@@ -287,18 +255,18 @@ static StepResult RunCustomCommand(CommandsConfigEntry cfg, string? slnFile, str
     return step;
 }
 
-static StepResult RunBump(string? slnFile, string? csprojFile, string[] commandArgs, DevConfig? devConfig, StepResult step, RunContext ctx)
+static StepResult RunBump(Workspace workspace, string[] commandArgs, StepResult step, RunContext ctx)
 {
     var part = commandArgs.Length > 0 ? commandArgs[0] : "minor";
-    var outcome = ExecuteBump(slnFile, csprojFile, part, devConfig, new BumpOptions(), ctx);
+    var outcome = ExecuteBump(workspace, part, new BumpOptions(), ctx);
     step.Data = new Dictionary<string, object?> { ["part"] = part, ["projects"] = outcome.Projects };
     return step;
 }
 
-static StepResult RunBumpCommit(string? slnFile, string? csprojFile, string[] commandArgs, DevConfig? devConfig, StepResult step, RunContext ctx)
+static StepResult RunBumpCommit(Workspace workspace, string[] commandArgs, StepResult step, RunContext ctx)
 {
     var part = commandArgs.Length > 0 ? commandArgs[0] : "minor";
-    var outcome = ExecuteBump(slnFile, csprojFile, part, devConfig, BumpOptions.CommitAndTag(), ctx);
+    var outcome = ExecuteBump(workspace, part, BumpOptions.CommitAndTag(), ctx);
 
     var gitInfo = new Dictionary<string, object?>();
     if (outcome.Git.Committed && outcome.Git.Tag is not null)
@@ -337,24 +305,18 @@ static StepResult RunBumpCommit(string? slnFile, string? csprojFile, string[] co
     return step;
 }
 
-static BumpOutcome ExecuteBump(string? slnFile, string? csprojFile, string part, DevConfig? devConfig, BumpOptions options, RunContext ctx)
+static BumpOutcome ExecuteBump(Workspace workspace, string part, BumpOptions options, RunContext ctx)
 {
-    var candidates = slnFile != null
-        ? GetProjectPaths(slnFile, devConfig?.IgnoreProjects, ctx).ToList()
-        : csprojFile != null
-            ? new List<ProjectCandidate> { new(csprojFile, true, null) }
-            : new List<ProjectCandidate>();
-
     var pipeline = new BumpPipeline(new CsprojVersionFile(), new ProcessGitPort(Runner, ctx), ctx.Log);
-    return pipeline.Execute(new BumpPlan(candidates, new BumpSpec(SemVer.ParsePart(part)), options));
+    return pipeline.Execute(new BumpPlan(workspace.EnumerateBumpTargets(), new BumpSpec(SemVer.ParsePart(part)), options));
 }
 
-static StepResult RunBuild(string buildTarget, StepResult step, RunContext ctx)
+static StepResult RunBuild(BuildTarget buildTarget, StepResult step, RunContext ctx)
 {
-    var (builder, result) = BuildSolutionOrProject(buildTarget, ctx);
+    var (builder, result) = BuildSolutionOrProject(buildTarget.Path, ctx);
     step.Data = new Dictionary<string, object?>
     {
-        ["target"] = buildTarget,
+        ["target"] = buildTarget.Path,
         ["builder"] = builder,
         ["builderExitCode"] = result.ExitCode,
         ["stderrTail"] = result.Ok ? null : result.StderrTail,
@@ -369,16 +331,18 @@ static StepResult RunBuild(string buildTarget, StepResult step, RunContext ctx)
     return step;
 }
 
-static StepResult RunLaunch(string? slnFile, string? csprojFile, StepResult step, RunContext ctx)
+static StepResult RunLaunch(Workspace workspace, StepResult step, RunContext ctx)
 {
-    if (slnFile != null)
+    if (workspace.BuildTarget.Kind == BuildTargetKind.Solution)
     {
+        var slnFile = workspace.SolutionPath!;
         ctx.Log($"[green]Opening[/] {slnFile} [green]in default IDE...[/]");
         Process.Start(new ProcessStartInfo(slnFile) { UseShellExecute = true });
         step.Data = new Dictionary<string, object?> { ["target"] = slnFile, ["opener"] = "shellExecute" };
     }
-    else if (csprojFile != null)
+    else
     {
+        var csprojFile = workspace.ProjectPath!;
         ctx.Log($"[green]Opening[/] {csprojFile} [green]in Visual Studio Code...[/]");
         Process.Start("code", csprojFile);
         step.Data = new Dictionary<string, object?> { ["target"] = csprojFile, ["opener"] = "code" };
@@ -557,93 +521,12 @@ static (string Builder, ProcRunResult Result) BuildSolutionOrProject(string buil
     return ("dotnet", Runner.Run(ProcSpec.Exec("dotnet", $"build \"{buildTarget}\" -c Release"), ctx));
 }
 
-static bool IsInGitSubmodule(string filePath)
-{
-    try
-    {
-        var directory = Path.GetDirectoryName(filePath);
-        if (string.IsNullOrEmpty(directory)) return false;
-        var currentDir = new DirectoryInfo(directory);
-        while (currentDir != null)
-        {
-            var gitPath = Path.Combine(currentDir.FullName, ".git");
-            if (File.Exists(gitPath)) return true;
-            if (Directory.Exists(gitPath)) return false;
-            currentDir = currentDir.Parent;
-        }
-        return false;
-    }
-    catch
-    {
-        return false;
-    }
-}
-
-static IEnumerable<ProjectCandidate> GetProjectPaths(string slnFile, IReadOnlyCollection<string>? ignoreProjects, RunContext ctx)
-{
-    var serializer = SolutionSerializers.GetSerializerByMoniker(slnFile);
-    if (serializer is null)
-    {
-        ctx.Log($"[red]Unable to find a serializer for {slnFile}[/]");
-        yield break;
-    }
-
-    SolutionModel solution;
-    try
-    {
-        solution = serializer.OpenAsync(slnFile, CancellationToken.None).GetAwaiter().GetResult();
-    }
-    catch (SolutionException ex)
-    {
-        ctx.Log($"[red]Error opening solution file:[/] {ex.Message}");
-        yield break;
-    }
-
-    foreach (var solutionProject in solution.SolutionProjects)
-    {
-        var projectPath = solutionProject.FilePath?.Replace('\\', Path.DirectorySeparatorChar);
-        if (string.IsNullOrEmpty(projectPath)) continue;
-        if (!Path.IsPathRooted(projectPath))
-            projectPath = Path.Combine(Path.GetDirectoryName(slnFile) ?? "", projectPath);
-
-        if (IsInGitSubmodule(projectPath))
-        {
-            ctx.Log($"[yellow]Skipping[/] {Path.GetFileNameWithoutExtension(projectPath)} [yellow](inside git submodule)[/]");
-            yield return new ProjectCandidate(projectPath, false, "submodule");
-            continue;
-        }
-
-        var projectName = Path.GetFileNameWithoutExtension(projectPath);
-        if (ignoreProjects?.Any(p => string.Equals(p, projectName, StringComparison.OrdinalIgnoreCase)) == true)
-        {
-            ctx.Log($"[yellow]Skipping[/] {projectName} [yellow](configured in dev.json)[/]");
-            yield return new ProjectCandidate(projectPath, false, "ignored");
-            continue;
-        }
-
-        yield return new ProjectCandidate(projectPath, true, null);
-    }
-}
-
 static string ReplaceVariables(string command, string? slnFile, string? csprojFile, string path)
 {
     return command
         .Replace("{sln}", slnFile ?? string.Empty)
         .Replace("{project}", csprojFile ?? string.Empty)
         .Replace("{dir}", path);
-}
-
-static string? FindSolutionFile(string searchPath)
-{
-    return Directory.GetFiles(searchPath, "*.sln*")
-        .Where(f => f.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
-        .OrderBy(f => f.Length)
-        .FirstOrDefault();
-}
-
-static string? FindProjectFile(string searchPath)
-{
-    return Directory.GetFiles(searchPath, "*.csproj").FirstOrDefault();
 }
 
 static object BuildHelpData(List<CommandsConfigEntry>? configCommands)

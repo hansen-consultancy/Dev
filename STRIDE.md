@@ -4,11 +4,12 @@
 > **Date:** 2026-04-25
 > **Scope:** The `dev` .NET global tool, its configuration files, and its interactions with the local system.
 
-> **v1.13.0 note:** Two architectural refactors land in this version, both behavior-preserving:
+> **v1.13.0 note:** Three architectural refactors land in this version, all behavior-preserving:
 > 1. Child-process execution extracted into `ProcessRunner.cs` (`IProcessRunner`, `ProcSpec`, `ProcRunResult`, `RealProcessRunner`). `ProcSpec.Shell` now delivers the user-supplied command line as a separate `ArgumentList` element to `bash -c` and `cmd.exe /S /C`, so the wrapper itself no longer concatenates untrusted strings into a quoted blob (T1 wrapper layer).
 > 2. Version-bump split into pure `SemVer` math, an `IProjectVersionFile` file-mutation port (`CsprojVersionFile` owns the `<Version>` regex), an `IGitPort` (`ProcessGitPort` rides on `IProcessRunner`), and a `BumpPipeline` orchestrator that owns the cross-project version-agreement invariant and the commit-then-tag sequencing.
+> 3. `sln`/`csproj`/`src/`/`dev.json` discovery collapsed into a `Workspace` value object with internal `IFileSystem` and `ISolutionReader` seams. `Workspace.Discover` owns submodule detection, ignore-list filtering, `.sln` vs `.slnx` precedence, the `src/` fallback, and parent-directory `dev.json` inheritance.
 >
-> No threat severities change. Affected-component references for T2, T3, R1, D2, etc. now point at the new files where the relevant code lives.
+> No threat severities change. Affected-component references for T2, T3, T4, R1, D2, etc. now point at the new files where the relevant code lives.
 
 ## Overview
 
@@ -51,7 +52,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 | T1 | **Command injection via `commands.json`** — Custom commands from `commands.json` are passed directly to `cmd.exe /c` or `bash -c` without sanitization. A malicious config can execute arbitrary shell commands. | `Program.cs:RunCustomCommand` → `ProcSpec.Shell` (`ProcessRunner.cs`) | **High** → **Partially Mitigated** | **Partially mitigated in v1.12.0:** The trust system ensures the user must explicitly approve the `commands.json` content before any commands execute. The command summary shows the exact shell commands that will run, giving the user visibility. **Hardened in v1.13.0:** `ProcSpec.Shell` no longer wraps the command line in `"…"` before handing it to the interpreter — the command line is delivered as a distinct `ArgumentList` element (`bash -c <cmd>` / `cmd.exe /S /C <cmd>`), so quote characters in the command body cannot break out of the wrapper. However, variable placeholders (`{sln}`, `{project}`, `{dir}`) are still injected unsanitized — if paths contain shell metacharacters, this could lead to unintended command execution within the (now correctly-delimited) command. The trust check covers the config file itself, not the runtime-resolved commands. |
 | T2 | **Build script tampering** — The tool executes `build.cmd`/`build.sh` if found in the project directory, with no integrity check. | `Program.cs:BuildSolutionOrProject` (~line 617) → `ProcessRunner.cs:RealProcessRunner` | **Medium** | An attacker who can write to the project directory can replace build scripts. This is a standard risk for local development tools. |
 | T3 | **Version file tampering via regex** — The version regex `<Version>(?<version>.*)</Version>` uses a greedy match that could be exploited with crafted `.csproj` content to write unexpected values. | `VersionBump.cs:CsprojVersionFile.VersionTagRegex` (csproj edit), `SemVer.cs:VersionRegex` (parse) | **Low** | The regex is simple and applied to XML content the developer controls. Risk is minimal in practice. |
-| T4 | **Parent directory `dev.json` traversal** — The tool checks the parent directory for `dev.json` if not found locally. A malicious `dev.json` placed in a shared parent directory could influence the tool's behavior (e.g., suppressing version bumps via `IgnoreProjects`). | `Program.cs:66-76` | **Low** | Only traverses one level up. The impact is limited to ignoring projects during version bumping. |
+| T4 | **Parent directory `dev.json` traversal** — The tool checks the parent directory for `dev.json` if not found locally. A malicious `dev.json` placed in a shared parent directory could influence the tool's behavior (e.g., suppressing version bumps via `IgnoreProjects`). | `Workspace.cs:LoadDevConfig` | **Low** | Only traverses one level up. The impact is limited to ignoring projects during version bumping. |
 
 ---
 
@@ -69,7 +70,7 @@ HC.Dev is a .NET 8.0 CLI tool distributed as a NuGet global tool. It operates in
 | # | Threat | Affected Component | Severity | Mitigation |
 |---|--------|--------------------|----------|------------|
 | I1 | **Source code exposed via Docker volume mount** — The `frontend` command mounts the entire working directory into a Docker container (`-v "{path}:/src"`). If the Docker image is compromised, all source code is accessible. | `Program.cs:RunFrontend` (~line 561) | **Medium** | The volume mount exposes the full working directory. Consider mounting only the necessary subdirectory if possible. Users should verify the Docker image integrity. |
-| I2 | **Exception details displayed to console** — Exceptions from config file parsing (and a child-process start failure) are written to the console via `AnsiConsole.WriteException`, which may reveal file paths and internal details. | `Program.cs:54-55`, `Program.cs:89-90`, `Program.cs:447-448`, `ProcessRunner.cs:RealProcessRunner` (start-failure path) | **Low** | This is a developer tool and the output is only visible to the local user. No sensitive data beyond file paths is exposed. |
+| I2 | **Exception details displayed to console** — Exceptions from config file parsing (and a child-process start failure) are written to the console via `AnsiConsole.WriteException`, which may reveal file paths and internal details. | `Program.cs:52` (commands.json parse), `Program.cs:73` (workspace discovery error — surfaces dev.json parse failure from `Workspace.cs`), `Program.cs:375` (clean failure), `ProcessRunner.cs:RealProcessRunner` (start-failure path) | **Low** | This is a developer tool and the output is only visible to the local user. No sensitive data beyond file paths is exposed. |
 | I3 | **Version and git info in banner** — The tool displays its version and git commit hash on every run. | `Program.cs:28-29` | **Informational** | This is intentional and useful. No action needed. |
 
 ---
