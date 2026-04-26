@@ -201,6 +201,7 @@ internal interface IFileSystem
     bool DirExists(string path);
     string[] GetFiles(string dir, string pattern);
     string ReadAllText(string path);
+    void WriteAllText(string path, string contents);
     string? GetParentDir(string path);
 }
 
@@ -210,6 +211,7 @@ internal sealed class RealFileSystem : IFileSystem
     public bool DirExists(string path) => Directory.Exists(path);
     public string[] GetFiles(string dir, string pattern) => Directory.GetFiles(dir, pattern);
     public string ReadAllText(string path) => File.ReadAllText(path);
+    public void WriteAllText(string path, string contents) => File.WriteAllText(path, contents);
     public string? GetParentDir(string path) => Directory.GetParent(path)?.FullName;
 }
 

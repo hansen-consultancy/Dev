@@ -384,127 +384,41 @@ static StepResult RunClean(string path, StepResult step, RunContext ctx)
 static StepResult RunFrontend(string path, StepResult step, RunContext ctx)
 {
     ctx.Log("[green]Running Vidyano frontend builder...[/]");
-    var mutations = new List<Dictionary<string, object?>>();
 
-    var buildFile = Path.Combine(path, "build-frontend.sh");
-    if (!File.Exists(buildFile))
+    var scaffold = FrontendEnv.Prepare(path, new ScaffoldOptions(
+        ctx.AutoYes, ctx.JsonMode, DryRun: false,
+        new AnsiConsolePrompter(), new RealFileSystem(), ctx.Log));
+
+    foreach (var w in scaffold.Warnings) step.Warnings.Add(w);
+
+    if (scaffold.State is ScaffoldState.BlockedByPrompt or ScaffoldState.UserDeclined)
     {
-        ctx.Log($"[red]No {Path.GetFileName(buildFile)} file found in the current directory.[/]");
-        bool create;
-        if (ctx.JsonMode)
-        {
-            if (!ctx.AutoYes)
-            {
-                step.Status = "failed";
-                step.ExitCode = 5;
-                step.Error = new StepError { Code = "interaction_required", Message = "build-frontend.sh is missing; re-run with --yes to create it." };
-                return step;
-            }
-            create = true;
-        }
-        else
-        {
-            create = ctx.AutoYes || AnsiConsole.Prompt(new ConfirmationPrompt("Do you want to create it?"));
-        }
-        if (!create)
-        {
-            ctx.Log("[red]Aborting.[/]");
-            step.Status = "failed";
-            step.ExitCode = 1;
-            step.Error = new StepError { Code = "user_aborted", Message = "User declined to create build-frontend.sh." };
-            return step;
-        }
-
-        ctx.Log($"[green]Creating[/] {Path.GetFileName(buildFile)} [green]file in the current directory...[/]");
-        var folderName = Path.GetFileName(path);
-        var contents = $$"""
-                         #!/usr/bin/env bash
-                         set -euo pipefail
-
-                         # enter your frontend folder, if any
-                         cd {{folderName}}/
-
-                         # install dependencies
-                         npm ci
-
-                         # compile Sass → CSS
-                         find wwwroot -type f -name "*.scss" -print -execdir sh -c 'sass "{}:${1%.scss}.css"' _ {} \;
-
-                         # transpile TypeScript
-                         tsc --project ./tsconfig.json
-
-                         # run any additional build steps
-                         npm run build
-                         """;
-        File.WriteAllText(buildFile, contents.Replace("\r\n", "\n"));
-        mutations.Add(new Dictionary<string, object?> { ["file"] = buildFile, ["action"] = "created" });
-    }
-    else
-    {
-        var content = File.ReadAllText(buildFile);
-        if (content.Contains("\r\n"))
-        {
-            ctx.Log($"[yellow]Converting[/] {Path.GetFileName(buildFile)} [yellow]to LF line endings...[/]");
-            content = content.Replace("\r\n", "\n");
-            File.WriteAllText(buildFile, content);
-            mutations.Add(new Dictionary<string, object?> { ["file"] = buildFile, ["action"] = "crlf_to_lf" });
-        }
+        step.Status = "failed";
+        step.ExitCode = scaffold.State == ScaffoldState.BlockedByPrompt ? 5 : 1;
+        step.Error = new StepError { Code = scaffold.BlockingCode!, Message = scaffold.BlockingMessage! };
+        step.Data = new Dictionary<string, object?> { ["mutations"] = scaffold.Mutations };
+        return step;
     }
 
-    var attributesFile = Path.Combine(path, ".gitattributes");
-    if (!File.Exists(attributesFile))
-    {
-        ctx.Log($"[red]No {Path.GetFileName(attributesFile)} file found in the current directory.[/]");
-        bool createAttrs;
-        if (ctx.JsonMode)
-            createAttrs = ctx.AutoYes;
-        else
-            createAttrs = ctx.AutoYes || AnsiConsole.Prompt(new ConfirmationPrompt("Do you want to create it?"));
-
-        if (createAttrs)
-        {
-            ctx.Log($"[green]Creating[/] {Path.GetFileName(attributesFile)} [green]file in the current directory...[/]");
-            File.WriteAllText(attributesFile, "# Set default behavior to automatically normalize line endings.\n* text=auto\n# Explicitly declare text files we want to always be normalized and converted to native line endings on checkout.\n*.sh text eol=lf");
-            mutations.Add(new Dictionary<string, object?> { ["file"] = attributesFile, ["action"] = "created" });
-        }
-        else
-        {
-            ctx.Log("[yellow]Ignoring.[/]");
-            step.Warnings.Add("gitattributes_missing");
-        }
-    }
-    else
-    {
-        var content = File.ReadAllText(attributesFile);
-        if (!content.Contains("*.sh text eol=lf"))
-        {
-            ctx.Log($"[yellow]Adding LF line endings for bash files to {Path.GetFileName(attributesFile)}...[/]");
-            content += "\n*.sh text eol=lf";
-            File.WriteAllText(attributesFile, content);
-            mutations.Add(new Dictionary<string, object?> { ["file"] = attributesFile, ["action"] = "appended", ["detail"] = "*.sh text eol=lf" });
-        }
-    }
-
-    const string dockerImage = "ghcr.io/stevehansen/vidyano-frontend-builder:latest";
-    var dockerCommand = $"docker run --rm -v \"{path}:/src\" -w /src {dockerImage}";
-    var result = Runner.Run(ProcSpec.Shell(dockerCommand), ctx);
+    var bo = FrontendBuilder.Run(path, new BuildOptions(
+        "ghcr.io/stevehansen/vidyano-frontend-builder:latest", Runner, ctx));
 
     step.Data = new Dictionary<string, object?>
     {
-        ["mutations"] = mutations,
+        ["mutations"] = scaffold.Mutations,
         ["docker"] = new Dictionary<string, object?>
         {
-            ["image"] = dockerImage,
-            ["exitCode"] = result.ExitCode,
-            ["stderrTail"] = result.Ok ? null : result.StderrTail,
-            ["stdoutTail"] = result.Ok ? null : result.StdoutTail,
+            ["image"] = bo.Image,
+            ["exitCode"] = bo.ExitCode,
+            ["stderrTail"] = bo.ExitCode != 0 ? bo.StderrTail : null,
+            ["stdoutTail"] = bo.ExitCode != 0 ? bo.StdoutTail : null,
         },
     };
-    if (!result.Ok)
+    if (bo.ExitCode != 0)
     {
         step.Status = "failed";
         step.ExitCode = 1;
-        step.Error = new StepError { Code = "docker_failed", Message = $"Docker exited with code {result.ExitCode}" };
+        step.Error = new StepError { Code = "docker_failed", Message = $"Docker exited with code {bo.ExitCode}" };
     }
     return step;
 }
@@ -730,6 +644,8 @@ static void DisplayCommandSummary(List<CommandsConfigEntry> commands)
 partial class Program
 {
     internal static IProcessRunner Runner { get; set; } = new RealProcessRunner();
+    internal static IFrontendEnvironment FrontendEnv { get; set; } = new FrontendEnvironment();
+    internal static IFrontendBuild FrontendBuilder { get; set; } = new FrontendBuild();
 }
 
 internal sealed class CommandsConfigEntry
