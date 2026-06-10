@@ -68,21 +68,32 @@ internal sealed class ProcessGitPort : IGitPort
         _ctx = ctx;
     }
 
+    // Every value here (project path, commit message, tag name) is delivered as a
+    // distinct ArgumentList element via ExecArgs — never concatenated into an argv
+    // string. The tag/message carry version data whose suffix/build-metadata comes
+    // from a permissive csproj <Version> regex, so an interpolated string would let
+    // a crafted version inject extra git arguments (split on whitespace) or break
+    // out of -m "…" quoting. argv form makes each value one opaque token.
+    //
+    // The leading `--` on `add` stops a path beginning with `-` from being read as
+    // an option. `tag` and `commit -m` need no such guard: the tag name always
+    // starts with a numeric major component (SemVer.ToString), and `-m` always
+    // consumes the very next token as its value regardless of content.
     public (int Exit, string[] Stderr, string[] Stdout) Add(string path)
     {
-        var r = _runner.Run(ProcSpec.Exec("git", $"add \"{path}\""), _ctx);
+        var r = _runner.Run(ProcSpec.ExecArgs("git", new[] { "add", "--", path }), _ctx);
         return (r.ExitCode, r.StderrTail, r.StdoutTail);
     }
 
     public (int Exit, string[] Stderr, string[] Stdout) Commit(string message)
     {
-        var r = _runner.Run(ProcSpec.Exec("git", $"commit -m \"{message}\""), _ctx);
+        var r = _runner.Run(ProcSpec.ExecArgs("git", new[] { "commit", "-m", message }), _ctx);
         return (r.ExitCode, r.StderrTail, r.StdoutTail);
     }
 
     public (int Exit, string[] Stderr, string[] Stdout) Tag(string name)
     {
-        var r = _runner.Run(ProcSpec.Exec("git", $"tag {name}"), _ctx);
+        var r = _runner.Run(ProcSpec.ExecArgs("git", new[] { "tag", name }), _ctx);
         return (r.ExitCode, r.StderrTail, r.StdoutTail);
     }
 }
