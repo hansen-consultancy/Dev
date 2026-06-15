@@ -60,6 +60,10 @@ Commands can be combined using the `+` operator to execute them sequentially (e.
 - **Spectre.Console**: For rich terminal UI
 - **ThisAssembly.AssemblyInfo/Git**: For build-time assembly information
 
+## Ubiquitous Language
+
+`UBIQUITOUS_LANGUAGE.md` (repo root) is the canonical domain glossary — the agreed vocabulary for the CLI's run/command, workspace/versioning, trust, and frontend subdomains. Use these terms in code, comments, help text, and JSON envelope fields; consult its "Flagged ambiguities" before naming new concepts — notably **Build** (compile command vs. SemVer 3rd component vs. build metadata), **Patch/Revision** (CLI bump parts) vs. their `Build`/`Fix` SemVer fields, and **Target** (`BuildTarget` what-to-compile vs. `BumpTarget` what-to-version). Update it when introducing or renaming a domain concept.
+
 ## Security & STRIDE Threat Model
 
 This project maintains a STRIDE threat model in `STRIDE.md`. When making changes, **always review whether `STRIDE.md` needs updating**. This applies to:

@@ -141,16 +141,7 @@ static int Finish(Envelope envelope, RunContext ctx, Stopwatch watch)
     return envelope.ExitCode;
 }
 
-static (string Command, string? Alias) ResolveAlias(string input) => input switch
-{
-    "b" => ("build", "b"),
-    "h" or "?" => ("help", input),
-    "f" => ("frontend", "f"),
-    "v" => ("bump", "v"),
-    "vc" => ("bump-commit", "vc"),
-    "c" => ("clean", "c"),
-    _ => (input, null),
-};
+static (string Command, string? Alias) ResolveAlias(string input) => CommandCatalog.Resolve(input);
 
 static StepResult ExecuteCommand(
     string command, string? alias, string[] commandArgs, string path,
@@ -183,9 +174,14 @@ static StepResult ExecuteCommand(
             else
             {
                 ctx.Log($"[red]Unknown command: {command}[/]");
+                // When a commands.json exists, builtins it doesn't declare are
+                // also "Unknown command", so suggest only config command names.
+                var suggestion = CommandCatalog.Suggest(command, configCommands.Select(c => c.Name));
+                if (suggestion is not null)
+                    ctx.Log($"[yellow]Did you mean {CommandCatalog.DescribeSuggestion(suggestion).EscapeMarkup()}?[/]");
                 step.Status = "failed";
                 step.ExitCode = 3;
-                step.Error = new StepError { Code = "unknown_command", Message = $"Unknown command: {command}" };
+                step.Error = new StepError { Code = "unknown_command", Message = $"Unknown command: {command}", Suggestion = suggestion };
                 return step;
             }
         }
@@ -210,9 +206,12 @@ static StepResult ExecuteCommand(
             case "launch": return RunLaunch(workspace, step, ctx);
             default:
                 ctx.Log($"[red]Unknown command: {command}[/]");
+                var suggestion = CommandCatalog.Suggest(command, CommandCatalog.Builtins.Concat(CommandCatalog.Aliases.Keys));
+                if (suggestion is not null)
+                    ctx.Log($"[yellow]Did you mean {CommandCatalog.DescribeSuggestion(suggestion).EscapeMarkup()}?[/]");
                 step.Status = "failed";
                 step.ExitCode = 3;
-                step.Error = new StepError { Code = "unknown_command", Message = $"Unknown command: {command}" };
+                step.Error = new StepError { Code = "unknown_command", Message = $"Unknown command: {command}", Suggestion = suggestion };
                 return step;
         }
     }
@@ -605,6 +604,7 @@ internal sealed class StepError
     public string Code { get; set; } = "";
     public string Message { get; set; } = "";
     public object? Detail { get; set; }
+    public string? Suggestion { get; set; }
 }
 
 internal sealed class Envelope
