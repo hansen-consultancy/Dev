@@ -22,6 +22,9 @@ Domain terminology for **HC.Dev** (`dev`), a .NET global CLI tool that orchestra
 | **Alias** | A short synonym for a **Built-in Command** (`b`, `c`, `h`/`?`, `f`, `v`, `vc`). | Shortcut, abbreviation |
 | **Default Command** | The **Command** executed when `dev` is called with no arguments; either the config entry marked `"default": true` or `launch` when no **Commands Config** exists. | Fallback command |
 | **Placeholder** | A token (`{sln}`, `{project}`, `{dir}`) inside a **Custom Command** line that is substituted with a detected path at **Run** time. | Variable, macro |
+| **Command Catalog** | The single source of truth (`CommandCatalog.cs`) for the **Built-in Command** names and the **Alias** map; consumed by both alias resolution and the **Suggestion** logic so the two cannot drift. | Command registry, command table |
+| **Unknown Command** | A typed token that matches no **Command** valid in the current context; produces a failed **Step** with `Code: unknown_command` and, when a near match exists, a **Suggestion**. | Bad command, invalid command |
+| **Suggestion** | The display-only nearest **Command** offered for an **Unknown Command** ("Did you mean `b` (build)?"), computed by case-insensitive edit distance over a context-dependent candidate set. Printed as a console hint and surfaced in the **Step** error's `suggestion` field; **never executed automatically and never prompts**. | Did-you-mean, autocorrect |
 
 ## Projects and versioning
 
@@ -77,6 +80,7 @@ Domain terminology for **HC.Dev** (`dev`), a .NET global CLI tool that orchestra
 - A **Command Chain** expands into N ordered **Steps**; a failed **Step** marks all subsequent **Steps** as `skipped`.
 - A **Solution** contains zero or more **Project Candidates**; each **Project Candidate** is either included (yielding a **Bump** attempt) or skipped with a **Skip Reason**.
 - A **Commands Config** must be a **Trusted Config** (or bypassed via **Auto-Yes**) before any **Custom Command** runs.
+- An **Unknown Command** draws its **Suggestion** from a context-dependent candidate set: the **Commands Config**'s **Command** names when a config is present (a **Built-in** it does not declare would also be unknown), otherwise the **Built-in Command** names plus **Aliases**.
 - A **Custom Command** resolves **Placeholders** using the **Solution**, **Project**, and **Working Directory** detected for the **Run**.
 - A **Bump Commit** is a **Bump** plus a git commit and tag; it aborts committing when zero or more-than-one distinct new **SemVer** values were produced across **Projects**.
 - A **Scaffold** produces zero or more **Mutations** and runs before the **Frontend Builder**; if a required file is missing and neither **Auto-Yes** nor an interactive **Trust Prompt**-style confirmation approves creation, the `frontend` **Step** fails as `interaction_required`.
