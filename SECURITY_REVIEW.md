@@ -15,14 +15,14 @@ Everything else is either already tracked in STRIDE at an appropriate severity, 
 
 | Severity | Count | Findings |
 |----------|-------|----------|
-| **Medium** | 1 | F1 — git argument injection via `<Version>` in bump/bump-commit *(✅ fixed v1.13.1)* |
-| **Medium** | 1 | F2 — placeholder injection in custom commands (confirms STRIDE E2/T1) *(✅ mitigated, unreleased)* |
-| **Low** | 3 | F3 (`--yes` trust bypass), F4 (trust TOCTOU), F5 (`:latest` Docker tag) *(✅ F5 mitigated, unreleased)* |
+| **Medium** | 1 | F1 — git argument injection via `<Version>` in bump/bump-commit *(✅ fixed in 1.14.0)* |
+| **Medium** | 1 | F2 — placeholder injection in custom commands (confirms STRIDE E2/T1) *(✅ fixed in 1.14.0)* |
+| **Low** | 3 | F3 (`--yes` trust bypass), F4 (trust TOCTOU), F5 (`:latest` Docker tag) *(✅ F5 fixed in 1.14.0)* |
 | **Informational** | 2 | F6 (unsafe JSON escaping), F7 (path-case trust keying on macOS) |
 
 ---
 
-## F1 — Argument injection into `git` via `<Version>` content (Medium) — ✅ FIXED (v1.13.1, 2026-06-10)
+## F1 — Argument injection into `git` via `<Version>` content (Medium) — ✅ FIXED (fixed 2026-06-10, shipped 1.14.0)
 
 > **Resolution:** `ProcessGitPort.Add/Commit/Tag` now route through `ProcSpec.ExecArgs` (each value is one `ArgumentList` token, never an interpolated argv string), with a `--` separator on `git add`. STRIDE T3 re-scoped to Medium → Mitigated. Build clean, 100/100 tests pass. Original finding preserved below for the record.
 
@@ -55,9 +55,9 @@ So a `commands.json`-free repo can still steer this path purely through a crafte
 
 ---
 
-## F2 — Placeholder injection in custom commands (Medium — confirms STRIDE E2/T1) — ✅ MITIGATED (development, unreleased — 2026-06-20)
+## F2 — Placeholder injection in custom commands (Medium — confirms STRIDE E2/T1) — ✅ MITIGATED (shipped 1.14.0 — 2026-06-20)
 
-> **Resolution:** `RunCustomCommand` now gates substitution through `PlaceholderGuard.FindUnsafe` (`PlaceholderGuard.cs`): before any value is spliced into the trusted shell body, each *used* placeholder's resolved path is scanned for shell metacharacters (`& | ; < > \` $ " ' %` and CR/LF/NUL). A hit refuses the command with a `placeholder_unsafe` error (exit 5) and runs nothing — the trusted command body keeps its shell features (pipes/`&&`/redirects). We refuse rather than escape because cmd.exe quoting is not reliably composable and escaping collides with author-supplied quotes; `(`/`)` are intentionally allowed so paths like `Program Files (x86)` still work. Pure, exhaustively tested (`PlaceholderGuardTests.cs`); build clean, 146/146 tests pass. **Not yet released** — version still `1.13.0`. Original finding preserved below for the record.
+> **Resolution:** `RunCustomCommand` now gates substitution through `PlaceholderGuard.FindUnsafe` (`PlaceholderGuard.cs`): before any value is spliced into the trusted shell body, each *used* placeholder's resolved path is scanned for shell metacharacters (`& | ; < > \` $ " ' %` and CR/LF/NUL). A hit refuses the command with a `placeholder_unsafe` error (exit 5) and runs nothing — the trusted command body keeps its shell features (pipes/`&&`/redirects). We refuse rather than escape because cmd.exe quoting is not reliably composable and escaping collides with author-supplied quotes; `(`/`)` are intentionally allowed so paths like `Program Files (x86)` still work. Pure, exhaustively tested (`PlaceholderGuardTests.cs`); build clean, 146/146 tests pass. Shipped in **1.14.0**. Original finding preserved below for the record.
 
 **Where:** `Program.cs:ReplaceVariables` → `RunCustomCommand` → `ProcSpec.Shell`.
 
@@ -89,9 +89,9 @@ Impact is limited: the executed commands and the displayed summary both come fro
 
 ---
 
-## F5 — Docker image pinned to `:latest` (Low — confirms STRIDE S3/I1) — ✅ MITIGATED (digest pin; development, unreleased — 2026-06-20)
+## F5 — Docker image pinned to `:latest` (Low — confirms STRIDE S3/I1) — ✅ MITIGATED (digest pin; shipped 1.14.0 — 2026-06-20)
 
-> **Resolution:** The image is now pinned by digest — `…:latest@sha256:b89acec0…c93614f` via the `Program.FrontendImage` constant (`Program.cs`), resolved with `docker buildx imagetools inspect`. A repointed or compromised `:latest` tag can no longer reach the mounted source tree; updating the builder is now a deliberate digest bump + tool release (documented at the constant). The mount-narrowing half is **not** applied: `build-frontend.sh` lives at the workspace root and `cd`s into subfolders, so `/src` must remain the workspace root — narrowing isn't cleanly feasible without restructuring the build contract. Build clean, 146/146 tests pass. **Not yet released** — version still `1.13.0`. Original finding preserved below for the record.
+> **Resolution:** The image is now pinned by digest — `…:latest@sha256:b89acec0…c93614f` via the `Program.FrontendImage` constant (`Program.cs`), resolved with `docker buildx imagetools inspect`. A repointed or compromised `:latest` tag can no longer reach the mounted source tree; updating the builder is now a deliberate digest bump + tool release (documented at the constant). The mount-narrowing half is **not** applied: `build-frontend.sh` lives at the workspace root and `cd`s into subfolders, so `/src` must remain the workspace root — narrowing isn't cleanly feasible without restructuring the build contract. Build clean, 146/146 tests pass. Shipped in **1.14.0**. Original finding preserved below for the record.
 
 `Program.cs:RunFrontend` / `Frontend.cs:FrontendBuild.Run` pull `ghcr.io/stevehansen/vidyano-frontend-builder:latest` and bind-mount the **entire** working directory (`-v {cwd}:/src`). A compromised or repointed `:latest` tag gets full read/write access to the source tree. The argv-form invocation (v1.13.0) correctly prevents the mount path from breaking into a shell — that part is good. Pin to a digest (`@sha256:…`) and, if feasible, mount only the needed subdirectory.
 

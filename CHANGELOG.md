@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-06-20
+
+### Added
+- "Did you mean …?" suggestion when an unknown command is typed: a display-only nearest-match hint (never auto-run; suppressed under `--json` but surfaced in the envelope error's `suggestion` field)
+
+### Changed
+- Internal: decomposed process execution, version-bump, workspace discovery, the `frontend` command, and the `commands.json` trust gate into small, individually tested modules and ports (behavior-preserving)
+
 ### Security
-- Pin the frontend builder Docker image by digest (`…:latest@sha256:b89acec0…`) instead of floating on `:latest`, so a repointed or compromised tag can no longer be substituted for the image mounted at `/src` (SECURITY_REVIEW F5 / STRIDE S3). Update the `Program.FrontendImage` constant to ship a new builder.
 - Route the version-bump `git add`/`commit`/`tag` operations through argv-form `ProcSpec.ExecArgs` (each value delivered as one `ArgumentList` token, with a `--` separator on `git add`) instead of interpolated argument strings, so a crafted `<Version>` in a cloned repo can no longer split or inject extra git arguments (SECURITY_REVIEW F1 / STRIDE T3).
 - Refuse to run a custom command when a used `{sln}`/`{project}`/`{dir}` placeholder resolves to a path containing a shell metacharacter (`& | ; < > \` $ " ' %`, CR/LF/NUL), closing the placeholder-injection vector (SECURITY_REVIEW F2 / STRIDE E2/T1). The trusted command body keeps its shell features; only the substituted paths are guarded.
+- Pin the frontend builder Docker image by digest (`…:latest@sha256:b89acec0…`) instead of floating on `:latest`, so a repointed or compromised tag can no longer be substituted for the image mounted at `/src` (SECURITY_REVIEW F5 / STRIDE S3). Update the `Program.FrontendImage` constant to ship a new builder.
 
 ## [1.13.0] - 2026-04-17
 
