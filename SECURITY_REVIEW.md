@@ -16,7 +16,7 @@ Everything else is either already tracked in STRIDE at an appropriate severity, 
 | Severity | Count | Findings |
 |----------|-------|----------|
 | **Medium** | 1 | F1 — git argument injection via `<Version>` in bump/bump-commit *(✅ fixed v1.13.1)* |
-| **Medium** | 1 | F2 — placeholder injection in custom commands (confirms STRIDE E2/T1) |
+| **Medium** | 1 | F2 — placeholder injection in custom commands (confirms STRIDE E2/T1) *(✅ mitigated, unreleased)* |
 | **Low** | 3 | F3 (`--yes` trust bypass), F4 (trust TOCTOU), F5 (`:latest` Docker tag) |
 | **Informational** | 2 | F6 (unsafe JSON escaping), F7 (path-case trust keying on macOS) |
 
@@ -55,7 +55,9 @@ So a `commands.json`-free repo can still steer this path purely through a crafte
 
 ---
 
-## F2 — Placeholder injection in custom commands (Medium — confirms STRIDE E2/T1)
+## F2 — Placeholder injection in custom commands (Medium — confirms STRIDE E2/T1) — ✅ MITIGATED (development, unreleased — 2026-06-20)
+
+> **Resolution:** `RunCustomCommand` now gates substitution through `PlaceholderGuard.FindUnsafe` (`PlaceholderGuard.cs`): before any value is spliced into the trusted shell body, each *used* placeholder's resolved path is scanned for shell metacharacters (`& | ; < > \` $ " ' %` and CR/LF/NUL). A hit refuses the command with a `placeholder_unsafe` error (exit 5) and runs nothing — the trusted command body keeps its shell features (pipes/`&&`/redirects). We refuse rather than escape because cmd.exe quoting is not reliably composable and escaping collides with author-supplied quotes; `(`/`)` are intentionally allowed so paths like `Program Files (x86)` still work. Pure, exhaustively tested (`PlaceholderGuardTests.cs`); build clean, 146/146 tests pass. **Not yet released** — version still `1.13.0`. Original finding preserved below for the record.
 
 **Where:** `Program.cs:ReplaceVariables` → `RunCustomCommand` → `ProcSpec.Shell`.
 
@@ -116,7 +118,7 @@ Impact is limited: the executed commands and the displayed summary both come fro
 ## Recommended priority order
 
 1. **F1** — switch `ProcessGitPort` to `ExecArgs` and guard against leading-dash version/tag tokens. (Only finding above informational with a real injection surface.)
-2. **F2** — escape placeholder values or model custom commands as argv (STRIDE priority #1, still open).
+2. ~~**F2** — escape placeholder values or model custom commands as argv (STRIDE priority #1, still open).~~ **Done (unreleased)** — `PlaceholderGuard` refuses paths carrying shell metacharacters before substitution.
 3. **F5** — pin the frontend Docker image to a digest.
 4. **F3** — tighten `--yes` policy for `NewFile` and/or add `--expected-hash`.
 5. **F4** — hash and parse `commands.json` from a single read.

@@ -233,6 +233,25 @@ static StepResult RunCustomCommand(CommandsConfigEntry cfg, Workspace? workspace
         return step;
     }
 
+    if (PlaceholderGuard.FindUnsafe(cmdLine, workspace?.SolutionPath, workspace?.ProjectPath, path) is { } unsafeHit)
+    {
+        var message = $"Refusing to run '{cfg.Name}': {unsafeHit.Placeholder} resolves to a path containing '{unsafeHit.Character}', a shell metacharacter that could be interpreted as a command.";
+        ctx.Log($"[red]{message.EscapeMarkup()}[/]");
+        step.Status = "failed";
+        step.ExitCode = 5;
+        step.Error = new StepError
+        {
+            Code = "placeholder_unsafe",
+            Message = message,
+            Detail = new Dictionary<string, object?>
+            {
+                ["placeholder"] = unsafeHit.Placeholder,
+                ["character"] = unsafeHit.Character.ToString(),
+            },
+        };
+        return step;
+    }
+
     cmdLine = ReplaceVariables(cmdLine, workspace?.SolutionPath, workspace?.ProjectPath, path);
     var spec = ProcSpec.Shell(cmdLine);
     var result = Runner.Run(spec, ctx);

@@ -101,7 +101,7 @@ Domain terminology for **HC.Dev** (`dev`), a .NET global CLI tool that orchestra
 >
 > **Dev:** "Got it. And `{project}` inside that shell line?"
 >
-> **Domain expert:** "That's a **Placeholder**. It's replaced with the path to the detected `.csproj` before the line is handed to `cmd.exe /c` or `bash -c`. Today the substitution isn't shell-escaped — that's tracked as threat E2 in the STRIDE model."
+> **Domain expert:** "That's a **Placeholder**. It's replaced with the path to the detected `.csproj` before the line is handed to `cmd.exe /c` or `bash -c`. The substitution isn't shell-escaped, so instead the value is *guarded*: if a used **Placeholder** resolves to a path containing a shell metacharacter, the command is refused rather than run (threat E2, mitigated in the STRIDE model)."
 >
 > **Dev:** "Last thing — what does `dev frontend --json` report when it has to create `build-frontend.sh`?"
 >

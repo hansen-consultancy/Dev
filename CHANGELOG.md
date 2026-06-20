@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Route the version-bump `git add`/`commit`/`tag` operations through argv-form `ProcSpec.ExecArgs` (each value delivered as one `ArgumentList` token, with a `--` separator on `git add`) instead of interpolated argument strings, so a crafted `<Version>` in a cloned repo can no longer split or inject extra git arguments (SECURITY_REVIEW F1 / STRIDE T3).
+- Refuse to run a custom command when a used `{sln}`/`{project}`/`{dir}` placeholder resolves to a path containing a shell metacharacter (`& | ; < > \` $ " ' %`, CR/LF/NUL), closing the placeholder-injection vector (SECURITY_REVIEW F2 / STRIDE E2/T1). The trusted command body keeps its shell features; only the substituted paths are guarded.
+
 ## [1.13.0] - 2026-04-17
 
 ### Added
