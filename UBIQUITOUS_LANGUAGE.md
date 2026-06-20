@@ -68,7 +68,7 @@ Domain terminology for **HC.Dev** (`dev`), a .NET global CLI tool that orchestra
 | ---- | ---------- | ---------------- |
 | **Builder** | The executable used to build a **Solution** or **Project**: either a local `build.cmd`/`build.sh` script when present, or `dotnet build -c Release`. | Compiler |
 | **Build Script** | A `build.cmd` (Windows) or `build.sh` (non-Windows) file colocated with the **Solution**/**Project** that, when present, overrides the default `dotnet` **Builder**. | — |
-| **Frontend Builder** | The Docker image `ghcr.io/stevehansen/vidyano-frontend-builder:latest`, run by the `frontend` **Command** against the **Working Directory** mounted at `/src`. | Vidyano builder |
+| **Frontend Builder** | The Docker image `ghcr.io/stevehansen/vidyano-frontend-builder`, run by the `frontend` **Command** against the **Working Directory** mounted at `/src`. Pinned by digest (the `Program.FrontendImage` constant), not floated on `:latest`, so the exact image is verified on every run. | Vidyano builder |
 | **Frontend Build Script** | The `build-frontend.sh` file invoked inside the **Frontend Builder** image; `dev frontend` creates it if missing. | — |
 | **Scaffold** | The preparation phase of `dev frontend` that ensures the **Frontend Build Script** exists, normalizes it to LF line endings, and patches `.gitattributes` before the **Frontend Builder** runs. | Setup, bootstrap |
 | **Mutation** | A single file change a **Scaffold** records (`created`, `crlf_to_lf`, `appended`); surfaced in the **Envelope** as the `mutations` list. | Edit, file change |

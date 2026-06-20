@@ -17,7 +17,7 @@ Everything else is either already tracked in STRIDE at an appropriate severity, 
 |----------|-------|----------|
 | **Medium** | 1 | F1 — git argument injection via `<Version>` in bump/bump-commit *(✅ fixed v1.13.1)* |
 | **Medium** | 1 | F2 — placeholder injection in custom commands (confirms STRIDE E2/T1) *(✅ mitigated, unreleased)* |
-| **Low** | 3 | F3 (`--yes` trust bypass), F4 (trust TOCTOU), F5 (`:latest` Docker tag) |
+| **Low** | 3 | F3 (`--yes` trust bypass), F4 (trust TOCTOU), F5 (`:latest` Docker tag) *(✅ F5 mitigated, unreleased)* |
 | **Informational** | 2 | F6 (unsafe JSON escaping), F7 (path-case trust keying on macOS) |
 
 ---
@@ -89,7 +89,9 @@ Impact is limited: the executed commands and the displayed summary both come fro
 
 ---
 
-## F5 — Docker image pinned to `:latest` (Low — confirms STRIDE S3/I1)
+## F5 — Docker image pinned to `:latest` (Low — confirms STRIDE S3/I1) — ✅ MITIGATED (digest pin; development, unreleased — 2026-06-20)
+
+> **Resolution:** The image is now pinned by digest — `…:latest@sha256:b89acec0…c93614f` via the `Program.FrontendImage` constant (`Program.cs`), resolved with `docker buildx imagetools inspect`. A repointed or compromised `:latest` tag can no longer reach the mounted source tree; updating the builder is now a deliberate digest bump + tool release (documented at the constant). The mount-narrowing half is **not** applied: `build-frontend.sh` lives at the workspace root and `cd`s into subfolders, so `/src` must remain the workspace root — narrowing isn't cleanly feasible without restructuring the build contract. Build clean, 146/146 tests pass. **Not yet released** — version still `1.13.0`. Original finding preserved below for the record.
 
 `Program.cs:RunFrontend` / `Frontend.cs:FrontendBuild.Run` pull `ghcr.io/stevehansen/vidyano-frontend-builder:latest` and bind-mount the **entire** working directory (`-v {cwd}:/src`). A compromised or repointed `:latest` tag gets full read/write access to the source tree. The argv-form invocation (v1.13.0) correctly prevents the mount path from breaking into a shell — that part is good. Pin to a digest (`@sha256:…`) and, if feasible, mount only the needed subdirectory.
 
@@ -119,7 +121,7 @@ Impact is limited: the executed commands and the displayed summary both come fro
 
 1. **F1** — switch `ProcessGitPort` to `ExecArgs` and guard against leading-dash version/tag tokens. (Only finding above informational with a real injection surface.)
 2. ~~**F2** — escape placeholder values or model custom commands as argv (STRIDE priority #1, still open).~~ **Done (unreleased)** — `PlaceholderGuard` refuses paths carrying shell metacharacters before substitution.
-3. **F5** — pin the frontend Docker image to a digest.
+3. ~~**F5** — pin the frontend Docker image to a digest.~~ **Done (unreleased)** — pinned via the `Program.FrontendImage` constant (`…@sha256:b89acec0…`).
 4. **F3** — tighten `--yes` policy for `NewFile` and/or add `--expected-hash`.
 5. **F4** — hash and parse `commands.json` from a single read.
 

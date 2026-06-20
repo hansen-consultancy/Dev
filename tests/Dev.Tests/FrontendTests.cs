@@ -257,3 +257,22 @@ public sealed class FrontendBuildTests
         Assert.Equal(new[] { "stdout line" }, outcome.StdoutTail);
     }
 }
+
+public sealed class FrontendImagePinTests
+{
+    // Security invariant (SECURITY_REVIEW F5 / STRIDE S3): the builder image the
+    // tool actually runs must be pinned by digest, never floated on a bare tag.
+    // This guards against a refactor silently reverting to ":latest".
+    [Fact]
+    public void Production_image_is_pinned_by_sha256_digest()
+    {
+        var image = Program.FrontendImage;
+
+        Assert.StartsWith("ghcr.io/stevehansen/vidyano-frontend-builder", image);
+        var at = image.IndexOf("@sha256:", StringComparison.Ordinal);
+        Assert.True(at >= 0, "image must carry an @sha256: digest");
+        var digest = image[(at + "@sha256:".Length)..];
+        Assert.Equal(64, digest.Length);
+        Assert.All(digest, c => Assert.True(Uri.IsHexDigit(c), $"non-hex digest char '{c}'"));
+    }
+}

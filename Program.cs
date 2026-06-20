@@ -421,8 +421,7 @@ static StepResult RunFrontend(string path, StepResult step, RunContext ctx)
         return step;
     }
 
-    var bo = FrontendBuilder.Run(path, new BuildOptions(
-        "ghcr.io/stevehansen/vidyano-frontend-builder:latest", Runner, ctx));
+    var bo = FrontendBuilder.Run(path, new BuildOptions(FrontendImage, Runner, ctx));
 
     step.Data = new Dictionary<string, object?>
     {
@@ -578,6 +577,15 @@ partial class Program
     internal static IProcessRunner Runner { get; set; } = new RealProcessRunner();
     internal static IFrontendEnvironment FrontendEnv { get; set; } = new FrontendEnvironment();
     internal static IFrontendBuild FrontendBuilder { get; set; } = new FrontendBuild();
+
+    // The frontend builder is pinned by digest, not floated on :latest, so a
+    // repointed or compromised tag cannot reach a user's source tree (mounted at
+    // /src). The :latest tag is retained only to document which tag this digest
+    // was resolved from. To ship a new builder: re-resolve the digest
+    //   docker buildx imagetools inspect ghcr.io/stevehansen/vidyano-frontend-builder:latest
+    // update the constant below, and release a new version of the tool.
+    internal const string FrontendImage =
+        "ghcr.io/stevehansen/vidyano-frontend-builder:latest@sha256:b89acec0cfe69c5c9069e6201fa344428ca199a005e6bd74feabd6387c93614f";
 }
 
 internal sealed class CommandsConfigEntry
