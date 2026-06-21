@@ -128,16 +128,7 @@ static int Finish(Envelope envelope, RunContext ctx, Stopwatch watch)
 {
     envelope.DurationMs = watch.ElapsedMilliseconds;
     if (ctx.JsonMode)
-    {
-        var opts = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            WriteIndented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-        Console.Out.WriteLine(JsonSerializer.Serialize(envelope, opts));
-    }
+        Console.Out.WriteLine(JsonSerializer.Serialize(envelope, Program.JsonOptions));
     return envelope.ExitCode;
 }
 
@@ -153,12 +144,9 @@ static StepResult ExecuteCommand(
 
     try
     {
-        if (command is "help")
-        {
-            step.Data = BuildHelpData(configCommands);
-            if (!ctx.JsonMode) RenderHelpTable(configCommands);
-            return step;
-        }
+        // help short-circuits before the commands.json unknown-command rejection so
+        // `dev help` works regardless of whether commands.json declares it.
+        if (command is "help") return RunHelp(configCommands, step, ctx);
 
         if (configCommands is not null)
         {
@@ -176,7 +164,7 @@ static StepResult ExecuteCommand(
                 ctx.Log($"[red]Unknown command: {command}[/]");
                 // When a commands.json exists, builtins it doesn't declare are
                 // also "Unknown command", so suggest only config command names.
-                var suggestion = CommandCatalog.Suggest(command, configCommands.Select(c => c.Name));
+                var suggestion = CommandCatalog.Suggest(command, CommandCatalog.SuggestionCandidates(configCommands));
                 if (suggestion is not null)
                     ctx.Log($"[yellow]Did you mean {CommandCatalog.DescribeSuggestion(suggestion).EscapeMarkup()}?[/]");
                 step.Status = "failed";
@@ -186,10 +174,20 @@ static StepResult ExecuteCommand(
             }
         }
 
-        if (command is "frontend") return RunFrontend(path, step, ctx);
-        if (command is "clean") return RunClean(path, step, ctx);
+        var spec = CommandCatalog.Find(command);
+        if (spec is null)
+        {
+            ctx.Log($"[red]Unknown command: {command}[/]");
+            var suggestion = CommandCatalog.Suggest(command, CommandCatalog.SuggestionCandidates(configCommands));
+            if (suggestion is not null)
+                ctx.Log($"[yellow]Did you mean {CommandCatalog.DescribeSuggestion(suggestion).EscapeMarkup()}?[/]");
+            step.Status = "failed";
+            step.ExitCode = 3;
+            step.Error = new StepError { Code = "unknown_command", Message = $"Unknown command: {command}", Suggestion = suggestion };
+            return step;
+        }
 
-        if (workspace is null)
+        if (spec.NeedsWorkspace && workspace is null)
         {
             ctx.Log("[red]No .sln, .slnx or .csproj file found in the current directory or src/ folder.[/]");
             step.Status = "failed";
@@ -198,27 +196,30 @@ static StepResult ExecuteCommand(
             return step;
         }
 
-        switch (command)
+        // Dispatch on the canonical name (spec.Name), not the raw input.
+        return spec.Name switch
         {
-            case "bump": return RunBump(workspace, commandArgs, step, ctx);
-            case "bump-commit": return RunBumpCommit(workspace, commandArgs, step, ctx);
-            case "build": return RunBuild(workspace.BuildTarget, step, ctx);
-            case "launch": return RunLaunch(workspace, step, ctx);
-            default:
-                ctx.Log($"[red]Unknown command: {command}[/]");
-                var suggestion = CommandCatalog.Suggest(command, CommandCatalog.Builtins.Concat(CommandCatalog.Aliases.Keys));
-                if (suggestion is not null)
-                    ctx.Log($"[yellow]Did you mean {CommandCatalog.DescribeSuggestion(suggestion).EscapeMarkup()}?[/]");
-                step.Status = "failed";
-                step.ExitCode = 3;
-                step.Error = new StepError { Code = "unknown_command", Message = $"Unknown command: {command}", Suggestion = suggestion };
-                return step;
-        }
+            "launch" => RunLaunch(workspace!, step, ctx),
+            "bump" => RunBump(workspace!, commandArgs, step, ctx),
+            "bump-commit" => RunBumpCommit(workspace!, commandArgs, step, ctx),
+            "build" => RunBuild(workspace!.BuildTarget, step, ctx),
+            "frontend" => RunFrontend(path, step, ctx),
+            "clean" => RunClean(path, step, ctx),
+            "help" => RunHelp(configCommands, step, ctx), // reached only via a commands.json entry whose "builtIn" is "help"; the bare help command short-circuits above. Kept so the switch stays exhaustive over Builtins.
+            _ => throw new UnreachableException(),
+        };
     }
     finally
     {
         step.DurationMs = watch.ElapsedMilliseconds;
     }
+}
+
+static StepResult RunHelp(List<CommandsConfigEntry>? configCommands, StepResult step, RunContext ctx)
+{
+    step.Data = Program.BuildHelpData(configCommands);
+    if (!ctx.JsonMode) RenderHelpTable(configCommands);
+    return step;
 }
 
 static StepResult RunCustomCommand(CommandsConfigEntry cfg, Workspace? workspace, string path, StepResult step, RunContext ctx)
@@ -463,80 +464,6 @@ static string ReplaceVariables(string command, string? slnFile, string? csprojFi
         .Replace("{dir}", path);
 }
 
-static object BuildHelpData(List<CommandsConfigEntry>? configCommands)
-{
-    var aliases = new Dictionary<string, string[]>
-    {
-        ["build"] = new[] { "b" },
-        ["help"] = new[] { "h", "?" },
-        ["frontend"] = new[] { "f" },
-        ["bump"] = new[] { "v" },
-        ["bump-commit"] = new[] { "vc" },
-        ["clean"] = new[] { "c" },
-    };
-
-    var commands = new List<Dictionary<string, object?>>();
-    if (configCommands is not null)
-    {
-        foreach (var c in configCommands)
-        {
-            if (c.Name is "help" or "h") continue;
-            var desc = !string.IsNullOrEmpty(c.BuiltIn)
-                ? BuiltinDescription(c.BuiltIn)
-                : c.Description ?? (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? c.Windows : c.NonWindows) ?? "";
-            commands.Add(new Dictionary<string, object?>
-            {
-                ["name"] = c.Name,
-                ["aliases"] = !string.IsNullOrEmpty(c.BuiltIn) && aliases.TryGetValue(c.BuiltIn, out var al) ? al : Array.Empty<string>(),
-                ["description"] = desc,
-                ["default"] = c.Default,
-                ["source"] = !string.IsNullOrEmpty(c.BuiltIn) ? "builtin" : "config",
-                ["builtIn"] = c.BuiltIn,
-            });
-        }
-    }
-    else
-    {
-        foreach (var name in new[] { "launch", "bump", "bump-commit", "build", "frontend", "clean" })
-        {
-            commands.Add(new Dictionary<string, object?>
-            {
-                ["name"] = name,
-                ["aliases"] = aliases.TryGetValue(name, out var al) ? al : Array.Empty<string>(),
-                ["description"] = BuiltinDescription(name),
-                ["default"] = name == "launch",
-                ["source"] = "builtin",
-            });
-        }
-    }
-    commands.Add(new Dictionary<string, object?>
-    {
-        ["name"] = "help",
-        ["aliases"] = aliases["help"],
-        ["description"] = "Displays this help message.",
-        ["source"] = "builtin",
-    });
-
-    return new Dictionary<string, object?>
-    {
-        ["commands"] = commands,
-        ["chaining"] = new Dictionary<string, object?> { ["separator"] = "+", ["example"] = "dev b+f" },
-        ["placeholders"] = new[] { "{sln}", "{project}", "{dir}" },
-        ["globalFlags"] = new[] { "--json", "--yes" },
-    };
-}
-
-static string BuiltinDescription(string name) => name switch
-{
-    "launch" => "Launches the current solution in your default IDE or project in Visual Studio Code.",
-    "bump" => "Bumps the version of all projects in the current solution or the current project. Defaults to minor.",
-    "bump-commit" => "Bumps the version and commits/tag the change in the current solution or project. Defaults to minor.",
-    "build" => "Builds the current solution or project in Release mode.",
-    "frontend" => "Runs the Vidyano frontend builder in the current directory.",
-    "clean" => "Clean the current folder by removing bin, obj, tmp-build, bin-windows, bin-linux, obj-windows, obj-linux folders.",
-    _ => name,
-};
-
 static void RenderHelpTable(List<CommandsConfigEntry>? configCommands)
 {
     var table = new Table()
@@ -544,27 +471,16 @@ static void RenderHelpTable(List<CommandsConfigEntry>? configCommands)
         .AddColumn(new TableColumn("[green]Command[/]").LeftAligned())
         .AddColumn(new TableColumn("[blue]Description[/]").LeftAligned());
 
-    if (configCommands is not null)
+    foreach (var r in CommandCatalog.HelpModel(configCommands))
     {
-        foreach (var c in configCommands)
-        {
-            if (c.Name is "help" or "h") continue;
-            var desc = !string.IsNullOrEmpty(c.BuiltIn) ? BuiltinDescription(c.BuiltIn)
-                : c.Description ?? (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? c.Windows : c.NonWindows) ?? string.Empty;
-            table.AddRow($"{c.Name}{(c.Default ? " (default)" : string.Empty)}".EscapeMarkup(), desc.EscapeMarkup());
-        }
-    }
-    else
-    {
-        table.AddRow("launch (default)", BuiltinDescription("launch"));
-        table.AddRow("bump (v) [major|minor|patch|revision]".EscapeMarkup(), BuiltinDescription("bump"));
-        table.AddRow("bump-commit (vc) [major|minor|patch|revision]".EscapeMarkup(), BuiltinDescription("bump-commit"));
-        table.AddRow("build (b)", BuiltinDescription("build"));
-        table.AddRow("frontend (f)", BuiltinDescription("frontend"));
-        table.AddRow("clean (c)", BuiltinDescription("clean"));
+        // builtins enumeration + synthetic help row carry alias/arg hints; bare config rows don't.
+        var decorate = configCommands is null || r.IsDefault is null;
+        var alias = decorate && r.Aliases.Length > 0 ? $" ({string.Join(", ", r.Aliases)})" : "";
+        var def = r.IsDefault == true ? " (default)" : "";
+        var arg = decorate && r.ArgSyntax is not null ? " " + r.ArgSyntax : "";
+        table.AddRow($"{r.Name}{alias}{def}{arg}".EscapeMarkup(), r.Description.EscapeMarkup());
     }
 
-    table.AddRow("help (h)", "Displays this help message.");
     table.AddEmptyRow();
     table.AddRow("[dim]Combine commands with '+'[/]", "[dim]Example: dev b+f (build then frontend)[/]");
     table.AddRow("[dim]Global flags[/]", "[dim]--json (machine output)  --yes (auto-accept prompts)[/]");
@@ -577,6 +493,48 @@ partial class Program
     internal static IProcessRunner Runner { get; set; } = new RealProcessRunner();
     internal static IFrontendEnvironment FrontendEnv { get; set; } = new FrontendEnvironment();
     internal static IFrontendBuild FrontendBuilder { get; set; } = new FrontendBuild();
+
+    // Shared so the --json help golden test can serialize BuildHelpData with the
+    // exact options the tool emits with.
+    internal static JsonSerializerOptions JsonOptions { get; } = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    // Mirror of the dispatch arms in ExecuteCommand's switch. Kept in sync by hand;
+    // CommandCatalog<->dispatch drift is turned into a test failure by the exhaustiveness test.
+    internal static readonly IReadOnlySet<string> DispatchableCommands =
+        new HashSet<string>(StringComparer.Ordinal) { "launch", "bump", "bump-commit", "build", "frontend", "clean", "help" };
+
+    // The --json help payload. Maps CommandCatalog.HelpModel; dictionary keys are
+    // added conditionally because WhenWritingNull does NOT drop null *values* inside
+    // a Dictionary<string, object?>, only null properties on typed objects.
+    internal static object BuildHelpData(List<CommandsConfigEntry>? config)
+    {
+        var commands = CommandCatalog.HelpModel(config).Select(r =>
+        {
+            var d = new Dictionary<string, object?>
+            {
+                ["name"] = r.Name,
+                ["aliases"] = r.Aliases,
+                ["description"] = r.Description,
+            };
+            if (r.IsDefault is not null) d["default"] = r.IsDefault.Value;   // absent on help row
+            d["source"] = r.Source;
+            if (config is not null && r.IsDefault is not null) d["builtIn"] = r.BuiltIn;  // present (maybe null) for config rows only
+            return d;
+        }).ToList();
+        return new Dictionary<string, object?>
+        {
+            ["commands"] = commands,
+            ["chaining"] = new Dictionary<string, object?> { ["separator"] = "+", ["example"] = "dev b+f" },
+            ["placeholders"] = new[] { "{sln}", "{project}", "{dir}" },
+            ["globalFlags"] = new[] { "--json", "--yes" },
+        };
+    }
 
     // The frontend builder is pinned by digest, not floated on :latest, so a
     // repointed or compromised tag cannot reach a user's source tree (mounted at

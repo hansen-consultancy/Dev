@@ -6,7 +6,7 @@ public sealed class CommandCatalogSuggestTests
 {
     // Mirrors the production caller: builtins plus alias keys.
     private static IEnumerable<string> BuiltinsAndAliases() =>
-        CommandCatalog.Builtins.Concat(CommandCatalog.Aliases.Keys);
+        CommandCatalog.Builtins.Select(c => c.Name).Concat(CommandCatalog.Aliases.Keys);
 
     [Fact]
     public void Bb_suggests_b_the_real_world_bug_case()
@@ -85,7 +85,7 @@ public sealed class CommandCatalogSuggestTests
     {
         // distance 0; 0 <= 2 and 0 < 5 -> returns "build". (Won't occur in
         // practice since known commands never reach Suggest, but pin behavior.)
-        Assert.Equal("build", CommandCatalog.Suggest("build", CommandCatalog.Builtins));
+        Assert.Equal("build", CommandCatalog.Suggest("build", CommandCatalog.Builtins.Select(c => c.Name)));
     }
 }
 
