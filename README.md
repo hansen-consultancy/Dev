@@ -102,7 +102,25 @@ dev help
 
 ### Custom Commands
 
-If a `commands.json` file exists in the current directory, it defines the available commands. Each entry can either reference a built-in command or specify processes to run on Windows and non-Windows systems. A command can be marked as the default using `"default": true`.
+If a `commands.json` file exists in the current directory, it defines the available commands. Each entry can either reference a built-in command or specify processes to run on Windows and non-Windows systems. A command can be marked as the default using `"Default": true`.
+
+The keys are case-sensitive and use PascalCase: `Name`, `Description`, `Default`, `BuiltIn`, `Windows`, `NonWindows`.
+
+```json
+[
+  {
+    "Name": "build",
+    "BuiltIn": "build"
+  },
+  {
+    "Name": "deploy",
+    "Description": "Publish the solution",
+    "Windows": "dotnet publish {sln} -c Release",
+    "NonWindows": "dotnet publish {sln} -c Release",
+    "Default": true
+  }
+]
+```
 
 Placeholders `{sln}`, `{project}` and `{dir}` in the command lines are replaced with the detected solution file, project file and current directory. For safety, a command is refused (it does not run) when one of these placeholders resolves to a path containing a shell metacharacter (`& | ; < > \` $ " ' %`, or a line break), so a maliciously named file or directory cannot inject commands.
 
