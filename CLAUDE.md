@@ -73,12 +73,16 @@ This project maintains a STRIDE threat model in `STRIDE.md`. When making changes
 - **Changes to existing threats** — if a mitigation is implemented, update the affected threat's severity and mitigation column
 - **New configuration surfaces** — any new config files, environment variables, or CLI flags that could be abused
 - **Dependency changes** — new external processes, Docker images, NuGet packages, or network calls
+- **When a change mitigates or resolves an existing finding** — re-scope it to Mitigated (update the mitigation text, severity, and Risk Summary row)
+
+**Updates are bidirectional and ride in the same PR.** Whether a change *introduces* a threat or *mitigates* one, the matching `STRIDE.md` edit ships in the **same PR** as the code/config change — never as a follow-up. A fix that closes a tracked finding is not done until `STRIDE.md` reflects it; treat a security-relevant diff with no `STRIDE.md` change as incomplete.
 
 When updating `STRIDE.md`:
-1. Update the version and date at the top
-2. Add/modify threat entries in the appropriate STRIDE category
+1. Update the version and date at the top (doc version is independent of the tool version)
+2. Add/modify threat entries in the appropriate STRIDE category, including the **Control** column (OWASP ASVS 5.0 chapter, or the local/infra control where ASVS is thin — see the "Control citations" note in `STRIDE.md`)
 3. Update the Risk Summary table
 4. Update the Recommended Mitigations section (strike through completed items)
+5. Link GitHub issues for unresolved High/Critical findings (label: `security`) and review the model after major releases
 
 ## Important Implementation Notes
 
