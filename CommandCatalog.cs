@@ -38,6 +38,7 @@ internal static class CommandCatalog
         new BuiltinCommand("bump-commit", ["vc"], "Bumps the version and commits/tag the change in the current solution or project. Defaults to minor.", NeedsWorkspace: true, IsDefault: false, ArgSyntax: "[major|minor|patch|revision]"),
         new BuiltinCommand("build", ["b"], "Builds the current solution or project in Release mode.", NeedsWorkspace: true, IsDefault: false, ArgSyntax: null),
         new BuiltinCommand("frontend", ["f"], "Runs the Vidyano frontend builder in the current directory.", NeedsWorkspace: false, IsDefault: false, ArgSyntax: null),
+        new BuiltinCommand("synchronize", ["s", "sync"], "Synchronizes the Vidyano app in the current solution: updates its model and schema files. No database required.", NeedsWorkspace: true, IsDefault: false, ArgSyntax: "[project]"),
         new BuiltinCommand("clean", ["c"], "Clean the current folder by removing bin, obj, tmp-build, bin-windows, bin-linux, obj-windows, obj-linux folders.", NeedsWorkspace: false, IsDefault: false, ArgSyntax: null),
         new BuiltinCommand("help", ["h", "?"], "Displays this help message.", NeedsWorkspace: false, IsDefault: false, ArgSyntax: null),
     };

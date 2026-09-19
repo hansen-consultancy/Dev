@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `synchronize` command (aliases `s`, `sync`): runs the Vidyano service CLI against the Vidyano app in the current solution (`dotnet run --project <app> -- --vidyano-update-model=yes --vidyano-synchronize-schema=yes`). The app is discovered by its `App_Data/model.json` marker; `dev sync <project>` names one when the solution holds several.
+
 ## [1.14.0] - 2026-06-20
 
 ### Added

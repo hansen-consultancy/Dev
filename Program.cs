@@ -204,6 +204,7 @@ static StepResult ExecuteCommand(
             "bump-commit" => RunBumpCommit(workspace!, commandArgs, step, ctx),
             "build" => RunBuild(workspace!.BuildTarget, step, ctx),
             "frontend" => RunFrontend(path, step, ctx),
+            "synchronize" => RunSynchronize(workspace!, commandArgs, step, ctx),
             "clean" => RunClean(path, step, ctx),
             "help" => RunHelp(configCommands, step, ctx), // reached only via a commands.json entry whose "builtIn" is "help"; the bare help command short-circuits above. Kept so the switch stays exhaustive over Builtins.
             _ => throw new UnreachableException(),
@@ -403,6 +404,54 @@ static StepResult RunClean(string path, StepResult step, RunContext ctx)
     return step;
 }
 
+static StepResult RunSynchronize(Workspace workspace, string[] commandArgs, StepResult step, RunContext ctx)
+{
+    var requestedName = commandArgs.Length > 0 ? commandArgs[0] : null;
+    var resolution = VidyanoAppLocator.Resolve(workspace.EnumerateProjectPaths(), requestedName, new RealFileSystem());
+
+    if (resolution.App is not { } app)
+    {
+        ctx.Log($"[red]{resolution.Message!.EscapeMarkup()}[/]");
+        step.Status = "failed";
+        // Ambiguity is answerable (`dev sync <project>`), so it reports as an
+        // interaction-required failure (5) rather than "nothing to act on" (2).
+        step.ExitCode = resolution.Code == "ambiguous_vidyano_project" ? 5 : 2;
+        step.Error = new StepError
+        {
+            Code = resolution.Code!,
+            Message = resolution.Message!,
+            Detail = new Dictionary<string, object?> { ["candidates"] = resolution.Candidates },
+        };
+        return step;
+    }
+
+    ctx.Log($"[green]Synchronizing[/] {app.Name} [green]using the Vidyano service CLI...[/]");
+
+    // Both flags every run: update-model is hash-guarded by the service (it only
+    // acts when the Vidyano dependency changed), so passing it costs nothing in
+    // the common case and spares the caller from knowing which one they need.
+    string[] flags = [SynchronizeUpdateModelFlag, SynchronizeSchemaFlag];
+    var result = Runner.Run(ProcSpec.ExecArgs("dotnet", ["run", "--project", app.ProjectPath, "--", .. flags]), ctx);
+
+    step.Data = new Dictionary<string, object?>
+    {
+        ["project"] = app.ProjectPath,
+        ["name"] = app.Name,
+        ["flags"] = flags,
+        ["exitCode"] = result.ExitCode,
+        ["stderrTail"] = result.Ok ? null : result.StderrTail,
+        ["stdoutTail"] = result.Ok ? null : result.StdoutTail,
+    };
+
+    if (!result.Ok)
+    {
+        step.Status = "failed";
+        step.ExitCode = 1;
+        step.Error = new StepError { Code = "synchronize_failed", Message = $"Vidyano synchronize exited with code {result.ExitCode}" };
+    }
+    return step;
+}
+
 static StepResult RunFrontend(string path, StepResult step, RunContext ctx)
 {
     ctx.Log("[green]Running Vidyano frontend builder...[/]");
@@ -507,7 +556,7 @@ partial class Program
     // Mirror of the dispatch arms in ExecuteCommand's switch. Kept in sync by hand;
     // CommandCatalog<->dispatch drift is turned into a test failure by the exhaustiveness test.
     internal static readonly IReadOnlySet<string> DispatchableCommands =
-        new HashSet<string>(StringComparer.Ordinal) { "launch", "bump", "bump-commit", "build", "frontend", "clean", "help" };
+        new HashSet<string>(StringComparer.Ordinal) { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "help" };
 
     // The --json help payload. Maps CommandCatalog.HelpModel; dictionary keys are
     // added conditionally because WhenWritingNull does NOT drop null *values* inside
@@ -542,6 +591,13 @@ partial class Program
     // was resolved from. To ship a new builder: re-resolve the digest
     //   docker buildx imagetools inspect ghcr.io/stevehansen/vidyano-frontend-builder:latest
     // update the constant below, and release a new version of the tool.
+    // The Vidyano service's own command-line switches, both no-DB and idempotent:
+    // update-model rewrites model.json after a Vidyano dependency upgrade,
+    // synchronize-schema after model/entity changes. The service exits once it has
+    // run them, so `dotnet run` returns instead of serving.
+    internal const string SynchronizeUpdateModelFlag = "--vidyano-update-model=yes";
+    internal const string SynchronizeSchemaFlag = "--vidyano-synchronize-schema=yes";
+
     internal const string FrontendImage =
         "ghcr.io/stevehansen/vidyano-frontend-builder:latest@sha256:b89acec0cfe69c5c9069e6201fa344428ca199a005e6bd74feabd6387c93614f";
 }
