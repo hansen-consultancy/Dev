@@ -84,6 +84,26 @@ dev frontend
 
 This command uses the [`ghcr.io/stevehansen/vidyano-frontend-builder`](https://github.com/stevehansen/vidyano-frontend-builder) Docker image to build your frontend. The image is pinned by digest (not floated on `:latest`) so the exact builder is verified on every run; a new builder ships with a new release of this tool.
 
+### Synchronize Vidyano App
+
+Runs the Vidyano service's own synchronize CLI against the Vidyano app in the current solution, updating its model and schema files after backend changes (new entities, changed properties) or after a Vidyano package upgrade.
+
+```bash
+dev synchronize
+# or
+dev sync
+# or, when the solution holds more than one Vidyano app
+dev sync MyProject
+```
+
+Under the hood this runs:
+
+```bash
+dotnet run --project <app> -- --vidyano-update-model=yes --vidyano-synchronize-schema=yes
+```
+
+The app project is the one with an `App_Data/model.json` (or `wwwroot/App_Data/model.json`) beside it; other projects in the solution are ignored. If the solution holds several, `dev sync` lists them and asks you to name one. Both switches are no-database operations and the service exits when they finish — `--vidyano-update-model` only does work when the Vidyano dependency changed, so it is always passed.
+
 ### Clean working directory
 
 Removes build output from the current directory.
@@ -136,6 +156,7 @@ The following aliases are available for commonly used commands:
 | c | clean |
 | h | help |
 | f | frontend |
+| s, sync | synchronize |
 | v | bump |
 | vc | bump-commit |
 

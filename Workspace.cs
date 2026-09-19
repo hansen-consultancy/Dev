@@ -35,6 +35,12 @@ public sealed class Workspace
 
     public IReadOnlyList<BumpTarget> EnumerateBumpTargets() => _bumpTargets;
 
+    // Every project in the workspace, regardless of bump inclusion: the solution's
+    // projects, or the bare project. Dev Config's IgnoreProjects and the submodule
+    // skip govern versioning only — a project excluded from a Bump is still a valid
+    // target for a command that picks one project to run.
+    public IReadOnlyList<string> EnumerateProjectPaths() => _bumpTargets.Select(t => t.Path).ToList();
+
     public static Workspace? Discover(string startPath, Action<string>? log = null)
         => Discover(startPath, log, new RealFileSystem(), new SolutionPersistenceReader());
 

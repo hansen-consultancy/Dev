@@ -14,11 +14,11 @@ public sealed class CommandCatalogHelpModelTests
     // ---- 1. HelpModel(null) — no-config ----------------------------------
 
     [Fact]
-    public void HelpModel_noConfig_returns_seven_rows_in_canonical_order()
+    public void HelpModel_noConfig_returns_eight_rows_in_canonical_order()
     {
         var rows = CommandCatalog.HelpModel(null);
         Assert.Equal(
-            new[] { "launch", "bump", "bump-commit", "build", "frontend", "clean", "help" },
+            new[] { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "help" },
             rows.Select(r => r.Name));
     }
 
@@ -32,6 +32,7 @@ public sealed class CommandCatalogHelpModelTests
         Assert.False(Row(rows, "bump-commit").IsDefault);
         Assert.False(Row(rows, "build").IsDefault);
         Assert.False(Row(rows, "frontend").IsDefault);
+        Assert.False(Row(rows, "synchronize").IsDefault);
         Assert.False(Row(rows, "clean").IsDefault);
 
         // The discriminator the JSON mapper keys off: help's IsDefault is NULL,
@@ -75,6 +76,7 @@ public sealed class CommandCatalogHelpModelTests
         Assert.Equal(new[] { "vc" }, Row(rows, "bump-commit").Aliases);
         Assert.Equal(new[] { "b" }, Row(rows, "build").Aliases);
         Assert.Equal(new[] { "f" }, Row(rows, "frontend").Aliases);
+        Assert.Equal(new[] { "s", "sync" }, Row(rows, "synchronize").Aliases);
         Assert.Equal(new[] { "c" }, Row(rows, "clean").Aliases);
         Assert.Equal(new[] { "h", "?" }, Row(rows, "help").Aliases);
     }
@@ -227,10 +229,10 @@ public sealed class CommandCatalogHelpModelTests
     {
         var candidates = CommandCatalog.SuggestionCandidates(null).ToList();
 
-        foreach (var name in new[] { "launch", "bump", "bump-commit", "build", "frontend", "clean", "help" })
+        foreach (var name in new[] { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "help" })
             Assert.Contains(name, candidates);
 
-        foreach (var aliasKey in new[] { "b", "c", "h", "?", "f", "v", "vc" })
+        foreach (var aliasKey in new[] { "b", "c", "h", "?", "f", "s", "sync", "v", "vc" })
             Assert.Contains(aliasKey, candidates);
     }
 
@@ -262,6 +264,7 @@ public sealed class CommandCatalogHelpModelTests
     [InlineData("bump")]
     [InlineData("bump-commit")]
     [InlineData("build")]
+    [InlineData("synchronize")]
     public void Builtin_needs_workspace(string name)
     {
         Assert.True(CommandCatalog.Find(name)!.NeedsWorkspace);
