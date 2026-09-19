@@ -146,6 +146,46 @@ public sealed class WorkspaceTests
     }
 
     [Fact]
+    public void EnumerateProjectPaths_keeps_projects_a_bump_would_skip()
+    {
+        // The contract synchronize relies on: IgnoreProjects and the submodule
+        // skip govern versioning only, so a project excluded from a Bump is
+        // still a candidate for a command that picks one project to run.
+        var fs = new FakeFileSystem()
+            .WithFile("/repo/App.sln", "")
+            .WithFile("/repo/dev.json", """{ "IgnoreProjects": ["Ignored"] }""")
+            .WithDir("/repo/.git")
+            .WithDir("/repo/sub")
+            .WithFile("/repo/sub/.git", ""); // submodule marker (file, not dir)
+        var sln = new FakeSolutionReader();
+        sln.ReturnsForSolution("/repo/App.sln", new[]
+        {
+            "/repo/Kept.csproj",
+            "/repo/Ignored.csproj",
+            "/repo/sub/SubProject.csproj",
+        });
+
+        var ws = Workspace.Discover("/repo", log: null, fs, sln);
+
+        Assert.Equal(
+            new[] { "/repo/Kept.csproj", "/repo/Ignored.csproj", "/repo/sub/SubProject.csproj" },
+            ws!.EnumerateProjectPaths());
+        // ...while the Bump view still excludes both.
+        Assert.Equal(
+            new[] { "/repo/Kept.csproj" },
+            ws.EnumerateBumpTargets().Where(t => t.Include).Select(t => t.Path));
+    }
+
+    [Fact]
+    public void EnumerateProjectPaths_yields_the_bare_project_when_there_is_no_solution()
+    {
+        var fs = new FakeFileSystem().WithFile("/repo/Lone.csproj", "");
+        var ws = Workspace.Discover("/repo", log: null, fs, new FakeSolutionReader());
+
+        Assert.Equal(new[] { "/repo/Lone.csproj" }, ws!.EnumerateProjectPaths());
+    }
+
+    [Fact]
     public void Discover_inherits_dev_json_from_parent_when_absent_in_cwd()
     {
         var devJson = """{ "IgnoreProjects": ["Skipped"] }""";
