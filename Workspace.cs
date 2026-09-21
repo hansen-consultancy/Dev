@@ -168,7 +168,7 @@ public sealed class Workspace
             while (!string.IsNullOrEmpty(current))
             {
                 var gitPath = Path.Combine(current, ".git");
-                if (fs.FileExists(gitPath)) return true;
+                if (fs.FileExists(gitPath)) return IsSubmoduleGitFile(fs.ReadAllText(gitPath));
                 if (fs.DirExists(gitPath)) return false;
                 current = fs.GetParentDir(current);
             }
@@ -184,6 +184,33 @@ public sealed class Workspace
             log?.Invoke($"[yellow]Submodule check failed for[/] {filePath}: {ex.Message}");
             return false;
         }
+    }
+
+    // A `.git` file instead of a directory marks either a submodule checkout or a
+    // linked worktree; both redirect elsewhere with `gitdir: <path>`. Git writes
+    // submodules under `<owner>/.git/modules/<name>` and worktrees under
+    // `<owner>/.git/worktrees/<name>`, so the segments past the owning git dir tell
+    // the two apart. A worktree of a submodule is both, and `modules` wins: the
+    // checkout still versions the submodule's repository. Anything unrecognizable
+    // counts as a submodule, because skipping a bump is the recoverable mistake.
+    private static bool IsSubmoduleGitFile(string content)
+    {
+        const string prefix = "gitdir:";
+        var gitDir = content
+            .Split('\n')
+            .Select(line => line.Trim())
+            .FirstOrDefault(line => line.StartsWith(prefix, StringComparison.Ordinal))
+            ?[prefix.Length..].Trim();
+
+        if (string.IsNullOrEmpty(gitDir)) return true;
+
+        var segments = gitDir.Split('/', '\\');
+        for (var i = Array.LastIndexOf(segments, ".git") + 1; i < segments.Length; i++)
+        {
+            if (segments[i] == "modules") return true;
+            if (segments[i] == "worktrees") return false;
+        }
+        return true;
     }
 }
 
