@@ -102,7 +102,7 @@ public sealed class WorkspaceTests
             .WithDir("/repo")
             .WithDir("/repo/.git") // top-level repo
             .WithDir("/repo/sub")
-            .WithFile("/repo/sub/.git", ""); // submodule marker (file, not dir)
+            .WithFile("/repo/sub/.git", "gitdir: ../.git/modules/sub"); // submodule marker (file, not dir)
         var sln = new FakeSolutionReader();
         sln.ReturnsForSolution("/repo/App.sln", new[]
         {
@@ -117,6 +117,41 @@ public sealed class WorkspaceTests
         Assert.True(targets[0].Include);
         Assert.False(targets[1].Include);
         Assert.Equal("submodule", targets[1].SkipReason);
+    }
+
+    [Fact]
+    public void EnumerateBumpTargets_includes_projects_in_a_linked_worktree()
+    {
+        // A worktree's `.git` is a file too, but it points at worktrees/ rather
+        // than modules/: the checkout is this repository, so it still gets bumped.
+        var fs = new FakeFileSystem()
+            .WithFile("/wt/App.sln", "")
+            .WithFile("/wt/.git", "gitdir: /main/.git/worktrees/wt\n");
+        var sln = new FakeSolutionReader();
+        sln.ReturnsForSolution("/wt/App.sln", new[] { "/wt/MainProject.csproj" });
+
+        var ws = Workspace.Discover("/wt", log: null, fs, sln);
+
+        var only = Assert.Single(ws!.EnumerateBumpTargets());
+        Assert.True(only.Include);
+        Assert.Null(only.SkipReason);
+    }
+
+    [Fact]
+    public void EnumerateBumpTargets_skips_a_worktree_of_a_submodule()
+    {
+        // Both markers are present; the checkout still versions the submodule.
+        var fs = new FakeFileSystem()
+            .WithFile("/wt/App.sln", "")
+            .WithFile("/wt/.git", "gitdir: /super/.git/modules/sub/worktrees/wt");
+        var sln = new FakeSolutionReader();
+        sln.ReturnsForSolution("/wt/App.sln", new[] { "/wt/SubProject.csproj" });
+
+        var ws = Workspace.Discover("/wt", log: null, fs, sln);
+
+        var only = Assert.Single(ws!.EnumerateBumpTargets());
+        Assert.False(only.Include);
+        Assert.Equal("submodule", only.SkipReason);
     }
 
     [Fact]
@@ -156,7 +191,7 @@ public sealed class WorkspaceTests
             .WithFile("/repo/dev.json", """{ "IgnoreProjects": ["Ignored"] }""")
             .WithDir("/repo/.git")
             .WithDir("/repo/sub")
-            .WithFile("/repo/sub/.git", ""); // submodule marker (file, not dir)
+            .WithFile("/repo/sub/.git", "gitdir: ../.git/modules/sub"); // submodule marker (file, not dir)
         var sln = new FakeSolutionReader();
         sln.ReturnsForSolution("/repo/App.sln", new[]
         {
