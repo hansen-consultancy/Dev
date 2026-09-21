@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-09-21
+
 ### Fixed
 - Stop treating a linked git worktree as a submodule. Detection keyed on a `.git` file existing, which is true for worktrees as well, so every project in a worktree was excluded from a bump and printed `Skipping <project> (inside git submodule)` on every command. The `.git` file's `gitdir:` target now decides: `modules/` is a submodule, `worktrees/` is not (a worktree of a submodule still counts as one).
 
