@@ -7,27 +7,117 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
+    timeout-minutes: 30
+    # The Azure federated credential trusts this environment, not a tag name (Azure takes no
+    # wildcards). Restrict the environment to version tags so nothing else can sign as us.
+    environment: release
     permissions:
-      id-token: write  # Required for OIDC trusted publishing
-      contents: read
+      id-token: write  # OIDC: NuGet trusted publishing and Azure sign-in, no stored secret
+      contents: write  # create the GitHub release with the signed standalone executables
 
     steps:
-      - uses: actions/checkout@v5
+      # Everything signing needs comes from repository/environment variables; README
+      # "Releasing" has the one-time Azure setup. An unsigned release is never published.
+      - name: Check signing configuration
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          missing=""
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_PROFILE; do
+            eval "value=\${$name:-}"
+            [ -z "$value" ] && missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Code signing is not set up::Missing variables:$missing. See README, 'Releasing'."
+            exit 1
+          fi
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           dotnet-version: '8.0.x'
 
+      - name: Test
+        run: dotnet test -c Release
+
+      # Pack later runs with --no-build, and it packs the dll from obj/, not bin/, so that
+      # is the copy that gets signed. The standalone exes are framework-dependent
+      # single-file builds: same .NET 8 prerequisite as the tool, about 1 MB each.
+      - name: Build
+        shell: bash
+        run: |
+          dotnet build Dev.csproj -c Release
+          mkdir dist
+          for rid in win-x64 win-arm64; do
+            dotnet publish Dev.csproj -c Release -r $rid --no-self-contained -p:PublishSingleFile=true -p:DebugType=none -o publish/$rid
+            cp publish/$rid/Dev.exe dist/dev-$rid.exe
+          done
+
+      - name: Azure sign-in (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files: |
+            ${{ github.workspace }}\obj\Release\net8.0\Dev.dll
+            ${{ github.workspace }}\dist\dev-win-x64.exe
+            ${{ github.workspace }}\dist\dev-win-arm64.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: HC.Dev
+          description-url: https://github.com/${{ github.repository }}
+
       - name: Pack
-        run: dotnet pack -c Release
+        run: dotnet pack Dev.csproj -c Release --no-build
+
+      # Check what ships, not what was signed: the dll inside the package and both exes.
+      # Artifact Signing certificates live three days, so an untimestamped signature
+      # stops verifying three days after the release.
+      - name: Verify signatures
+        shell: pwsh
+        run: |
+          $pkg = Get-ChildItem nupkg -Filter *.nupkg | Where-Object Name -notlike '*.snupkg' | Select-Object -First 1
+          Copy-Item $pkg.FullName "$env:RUNNER_TEMP/pkg.zip"
+          Expand-Archive "$env:RUNNER_TEMP/pkg.zip" -DestinationPath "$env:RUNNER_TEMP/pkg" -Force
+          $files = @(Get-ChildItem "$env:RUNNER_TEMP/pkg" -Recurse -Filter Dev.dll) + @(Get-ChildItem dist -Filter *.exe)
+          $bad = $files | Where-Object { $s = Get-AuthenticodeSignature $_.FullName; $s.Status -ne 'Valid' -or -not $s.TimeStamperCertificate }
+          if ($files.Count -lt 3 -or $bad) {
+            Write-Output "::error title=Unsigned or untimestamped files::$($bad.Name -join ', ')"
+            exit 1
+          }
+          $files | ForEach-Object { $s = Get-AuthenticodeSignature $_.FullName; "{0}: {1}, timestamped by {2}" -f $_.Name, $s.SignerCertificate.Subject, $s.TimeStamperCertificate.Subject }
+
+      # Before the NuGet push: a failed push can be retried, a pushed version cannot be withdrawn.
+      - name: GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes "See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/$GITHUB_REF_NAME/CHANGELOG.md)." dist/dev-win-x64.exe dist/dev-win-arm64.exe
 
       - name: NuGet login (OIDC)
-        uses: nuget/login@v1
+        uses: nuget/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         id: login
         with:
           user: ${{ vars.NUGET_USER }}
 
       - name: Publish to NuGet
+        shell: bash
         run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
