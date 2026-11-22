@@ -18,6 +18,10 @@ To update to the latest version:
 dotnet tool update --global HC.Dev
 ```
 
+### Signed standalone executable (Windows)
+
+Every release also attaches signed, single-file executables to its [GitHub release](https://github.com/hansen-consultancy/Dev/releases): `dev-win-x64.exe` and `dev-win-arm64.exe`. They need the .NET 8 runtime, like the tool. Use one when Smart App Control or WDAC blocks unsigned programs. The global tool's `Dev.dll` is signed, but the `dev.exe` launcher that `dotnet tool install` creates is generated on your machine and stays unsigned. Save the exe as `dev.exe` in a folder on your `PATH`, and uninstall the global tool (`dotnet tool uninstall -g HC.Dev`) so the two don't clash. Update by downloading the newer exe.
+
 ## Features
 
 ### Launch Solution or Project
@@ -197,6 +201,19 @@ dev clean+build+frontend
 ```
 
 When combining commands, execution stops if any command fails.
+
+## Releasing
+
+`dev bump-commit` and pushing the version tag start `.github/workflows/publish.yml`. It tests, builds, signs `Dev.dll` and the standalone executables with **Azure Artifact Signing**, checks that each shipped file has a valid timestamped signature, creates the GitHub release, then pushes to NuGet. Nothing is published unsigned.
+
+One-time setup (the workflow's first step names any variable that is missing):
+
+1. **Artifact Signing account and certificate profile** (Public Trust). The existing account and profile used by the other repositories can be reused.
+2. **Federated credential** on the app registration that has the *Artifact Signing Certificate Profile Signer* role on that profile: scenario *GitHub Actions deploying Azure resources*, organization `hansen-consultancy`, repository `Dev`, entity type **Environment**, name `release`. This repository uses GitHub's default subject format, so the subject is `repo:hansen-consultancy/Dev:environment:release` (check with `gh api repos/hansen-consultancy/Dev/actions/oidc/customization/sub`).
+3. **GitHub environment** `release`, with deployment tags restricted to version tags (`*.*.*`).
+4. **Variables** on the repository or the environment: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_PROFILE`. They are variables, not secrets: none grants anything on its own.
+
+Artifact Signing certificates are valid for three days. A signature keeps verifying after that only because it is timestamped, which the workflow checks.
 
 ## License
 

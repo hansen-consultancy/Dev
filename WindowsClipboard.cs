@@ -6,7 +6,6 @@
 
 using System.Diagnostics;
 using System.Globalization;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
@@ -65,9 +64,9 @@ internal sealed class WindowsClipboard : ITransientClipboard
     {
         var exe = Environment.ProcessPath ?? throw new InvalidOperationException("Unknown process path.");
         var psi = new ProcessStartInfo(exe) { UseShellExecute = false, CreateNoWindow = true };
-        // Under `dotnet Dev.dll` the process is the dotnet host; pass the app dll.
+        // Under `dotnet Dev.dll` the process is the dotnet host and argv[0] is the app dll.
         if (string.Equals(Path.GetFileNameWithoutExtension(exe), "dotnet", StringComparison.OrdinalIgnoreCase))
-            psi.ArgumentList.Add(Assembly.GetEntryAssembly()!.Location);
+            psi.ArgumentList.Add(Environment.GetCommandLineArgs()[0]);
         psi.ArgumentList.Add("b64");
         psi.ArgumentList.Add(ClearFlag);
         psi.ArgumentList.Add(sequence.ToString(CultureInfo.InvariantCulture));
