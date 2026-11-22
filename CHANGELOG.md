@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-11-22
+
 ### Added
 - `b64` command: base64-encodes a file (bytes), text, or stdin; `-d` decodes (base64 text, a file holding it, or stdin) to stdout or, with `-o <file>`, to a file — e.g. a `.pfx` to base64 and back. Invalid base64 fails with `invalid_base64` (exit 1). `-c` copies to the clipboard instead (Windows), excluded from clipboard history and cloud clipboard and cleared after 30 s, with a warning when the input looks like a certificate or private key. Runs without a workspace and ignores `commands.json`.
 - Signed standalone executables (`dev-win-x64.exe`, `dev-win-arm64.exe`) attached to each GitHub release, for machines where Smart App Control or WDAC blocks unsigned programs.
