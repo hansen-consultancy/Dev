@@ -112,6 +112,27 @@ Removes build output from the current directory.
 dev clean
 ```
 
+### Base64
+
+Base64-encodes or decodes without a separate app. One input rule for both directions: an argument that names an existing file is read as bytes, any other argument is the value itself, and with no argument the input is read from stdin.
+
+```bash
+dev b64 cert.pfx                       # file -> base64 on stdout
+dev b64 "some text"                    # text -> base64
+Get-Content notes.txt | dev b64        # stdin -> base64
+dev b64 -d aGVsbG8=                    # base64 -> text on stdout
+dev b64 -d cert.b64 -o cert.pfx        # base64 (text or file) -> bytes in a file
+dev b64 cert.pfx -c                    # copy to the clipboard instead of printing
+```
+
+- `-d`/`--decode` decodes; line breaks and surrounding whitespace in the input are ignored. Invalid base64 fails with exit code 1.
+- `-o <file>`/`--output <file>` writes the result to a file. Binary decoded data is refused on a terminal: use `-o` (or redirect stdout).
+- `-c`/`--clip` (Windows) copies the result to the clipboard, excluded from clipboard history (Win+V) and cloud clipboard, and clears it after 30 seconds unless you copied something else since. A warning is printed when the input looks like a certificate or private key (`.pfx`, `.p12`, `.key`, a PKCS#12 header or a PEM private key).
+- Piped text loses one trailing newline (PowerShell and `echo` add one); pass a file for byte-exact input. Use `--` before text that starts with `-`.
+- Prefer a file over a literal argument for secrets: arguments end up in shell history.
+
+`b64` works in any directory: it needs no solution or project and is not affected by `commands.json`.
+
 ### Help
 
 Displays help information.
