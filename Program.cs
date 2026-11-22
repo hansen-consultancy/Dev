@@ -21,7 +21,14 @@ var toolCommit = informationalVersion.Length > 1
     ? (informationalVersion[1].Length >= 7 ? informationalVersion[1][..7] : informationalVersion[1])
     : "";
 
-if (!jsonMode)
+// b64 is a stdin/stdout filter: stdout carries nothing but its output (so no
+// banner), and it never needs commands.json or a workspace, so it skips both — a
+// project's commands.json would otherwise reject it as an unknown command.
+var isBase64 = args.Length > 0 && CommandCatalog.Resolve(args[0]).Command == "b64";
+if (isBase64 && OperatingSystem.IsWindows() && WindowsClipboard.TryRunScheduledClear(args))
+    return 0;
+
+if (!jsonMode && !isBase64)
     AnsiConsole.MarkupLine($"[bold green]{ThisAssembly.Info.Product}[/] v[green]{toolVersion}[/]+{toolCommit}");
 
 var path = Environment.CurrentDirectory;
@@ -32,6 +39,16 @@ var envelope = new Envelope
     Commit = toolCommit,
     Cwd = path,
 };
+
+if (isBase64)
+{
+    var (b64Command, b64Alias) = ResolveAlias(args[0]);
+    var b64Step = RunBase64(args[1..], new StepResult { Command = b64Command, Alias = b64Alias }, ctx);
+    envelope.Steps.Add(b64Step);
+    envelope.Ok = b64Step.Status != "failed";
+    envelope.ExitCode = b64Step.ExitCode;
+    return Finish(envelope, ctx, runWatch);
+}
 
 var configFile = Path.Combine(path, "commands.json");
 List<CommandsConfigEntry>? configCommands = null;
@@ -206,6 +223,7 @@ static StepResult ExecuteCommand(
             "frontend" => RunFrontend(path, step, ctx),
             "synchronize" => RunSynchronize(workspace!, commandArgs, step, ctx),
             "clean" => RunClean(path, step, ctx),
+            "b64" => RunBase64(commandArgs, step, ctx),
             "help" => RunHelp(configCommands, step, ctx), // reached only via a commands.json entry whose "builtIn" is "help"; the bare help command short-circuits above. Kept so the switch stays exhaustive over Builtins.
             _ => throw new UnreachableException(),
         };
@@ -404,6 +422,9 @@ static StepResult RunClean(string path, StepResult step, RunContext ctx)
     return step;
 }
 
+static StepResult RunBase64(string[] commandArgs, StepResult step, RunContext ctx) =>
+    Base64Command.Run(commandArgs, step, Base64Io.FromConsole(), ctx.JsonMode);
+
 static StepResult RunSynchronize(Workspace workspace, string[] commandArgs, StepResult step, RunContext ctx)
 {
     var requestedName = commandArgs.Length > 0 ? commandArgs[0] : null;
@@ -556,7 +577,7 @@ partial class Program
     // Mirror of the dispatch arms in ExecuteCommand's switch. Kept in sync by hand;
     // CommandCatalog<->dispatch drift is turned into a test failure by the exhaustiveness test.
     internal static readonly IReadOnlySet<string> DispatchableCommands =
-        new HashSet<string>(StringComparer.Ordinal) { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "help" };
+        new HashSet<string>(StringComparer.Ordinal) { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "b64", "help" };
 
     // The --json help payload. Maps CommandCatalog.HelpModel; dictionary keys are
     // added conditionally because WhenWritingNull does NOT drop null *values* inside

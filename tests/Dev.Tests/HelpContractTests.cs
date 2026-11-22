@@ -29,15 +29,15 @@ public sealed class HelpContractTests
     // ---- BuildHelpData(null) ---------------------------------------------
 
     [Fact]
-    public void NoConfig_commands_is_eight_objects_in_order()
+    public void NoConfig_commands_is_nine_objects_in_order()
     {
         using var doc = Serialize(null);
         var commands = doc.RootElement.GetProperty("commands");
 
         Assert.Equal(JsonValueKind.Array, commands.ValueKind);
-        Assert.Equal(8, commands.GetArrayLength());
+        Assert.Equal(9, commands.GetArrayLength());
         Assert.Equal(
-            new[] { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "help" },
+            new[] { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "b64", "help" },
             Names(commands));
     }
 
@@ -47,7 +47,7 @@ public sealed class HelpContractTests
         using var doc = Serialize(null);
         var commands = doc.RootElement.GetProperty("commands");
 
-        foreach (var name in new[] { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean" })
+        foreach (var name in new[] { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "b64" })
         {
             var cmd = Command(commands, name);
             Assert.True(Has(cmd, "default"), $"{name} should have a default property");
@@ -64,7 +64,7 @@ public sealed class HelpContractTests
         var commands = doc.RootElement.GetProperty("commands");
 
         Assert.True(Command(commands, "launch").GetProperty("default").GetBoolean());
-        foreach (var name in new[] { "bump", "bump-commit", "build", "frontend", "synchronize", "clean" })
+        foreach (var name in new[] { "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "b64" })
             Assert.False(Command(commands, name).GetProperty("default").GetBoolean());
     }
 
@@ -92,6 +92,7 @@ public sealed class HelpContractTests
         Assert.Equal(new[] { "f" }, Aliases(Command(commands, "frontend")));
         Assert.Equal(new[] { "s", "sync" }, Aliases(Command(commands, "synchronize")));
         Assert.Equal(new[] { "c" }, Aliases(Command(commands, "clean")));
+        Assert.Empty(Aliases(Command(commands, "b64")));
         Assert.Equal(new[] { "h", "?" }, Aliases(Command(commands, "help")));
     }
 

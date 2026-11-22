@@ -14,11 +14,11 @@ public sealed class CommandCatalogHelpModelTests
     // ---- 1. HelpModel(null) — no-config ----------------------------------
 
     [Fact]
-    public void HelpModel_noConfig_returns_eight_rows_in_canonical_order()
+    public void HelpModel_noConfig_returns_nine_rows_in_canonical_order()
     {
         var rows = CommandCatalog.HelpModel(null);
         Assert.Equal(
-            new[] { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "help" },
+            new[] { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "b64", "help" },
             rows.Select(r => r.Name));
     }
 
@@ -34,6 +34,7 @@ public sealed class CommandCatalogHelpModelTests
         Assert.False(Row(rows, "frontend").IsDefault);
         Assert.False(Row(rows, "synchronize").IsDefault);
         Assert.False(Row(rows, "clean").IsDefault);
+        Assert.False(Row(rows, "b64").IsDefault);
 
         // The discriminator the JSON mapper keys off: help's IsDefault is NULL,
         // not false. Assert it explicitly.
@@ -41,12 +42,13 @@ public sealed class CommandCatalogHelpModelTests
     }
 
     [Fact]
-    public void HelpModel_noConfig_argSyntax_only_on_bump_commands()
+    public void HelpModel_noConfig_argSyntax_only_on_bump_and_b64()
     {
         var rows = CommandCatalog.HelpModel(null);
 
         Assert.Equal("[major|minor|patch|revision]", Row(rows, "bump").ArgSyntax);
         Assert.Equal("[major|minor|patch|revision]", Row(rows, "bump-commit").ArgSyntax);
+        Assert.Equal("[-d] [-o <file> | -c] [<file>|<text>]", Row(rows, "b64").ArgSyntax);
 
         Assert.Null(Row(rows, "launch").ArgSyntax);
         Assert.Null(Row(rows, "build").ArgSyntax);
@@ -78,6 +80,7 @@ public sealed class CommandCatalogHelpModelTests
         Assert.Equal(new[] { "f" }, Row(rows, "frontend").Aliases);
         Assert.Equal(new[] { "s", "sync" }, Row(rows, "synchronize").Aliases);
         Assert.Equal(new[] { "c" }, Row(rows, "clean").Aliases);
+        Assert.Empty(Row(rows, "b64").Aliases);
         Assert.Equal(new[] { "h", "?" }, Row(rows, "help").Aliases);
     }
 
@@ -229,7 +232,7 @@ public sealed class CommandCatalogHelpModelTests
     {
         var candidates = CommandCatalog.SuggestionCandidates(null).ToList();
 
-        foreach (var name in new[] { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "help" })
+        foreach (var name in new[] { "launch", "bump", "bump-commit", "build", "frontend", "synchronize", "clean", "b64", "help" })
             Assert.Contains(name, candidates);
 
         foreach (var aliasKey in new[] { "b", "c", "h", "?", "f", "s", "sync", "v", "vc" })
@@ -273,6 +276,7 @@ public sealed class CommandCatalogHelpModelTests
     [Theory]
     [InlineData("frontend")]
     [InlineData("clean")]
+    [InlineData("b64")]
     [InlineData("help")]
     public void Builtin_does_not_need_workspace(string name)
     {
